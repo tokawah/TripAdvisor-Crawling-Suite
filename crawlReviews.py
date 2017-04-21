@@ -1,97 +1,113 @@
-import ast
-import pickle
-from commons import HOTEL_ID, REVIEW_FOLDER, TA_ROOT, SLEEP_TIME
+#!/usr/bin/python3
+# -*- coding:utf8 -*-
+import common
+from common import HOTEL_ID, REVIEW_FOLDER
+from common import TA_ROOT, SLEEP_TIME, REVIEW_THREAD_NUM
 from os.path import isfile, join
-from selenium.common.exceptions import WebDriverException
-from selenium.common.exceptions import NoSuchElementException
-from selenium.common.exceptions import TimeoutException
-from selenium import webdriver
 import requests
-from bs4 import BeautifulSoup
 import time
 import math
+import re
+import os
+import queue
+import threading
 
 
-def navigate(browser, url):
+def find_reviews(webdata):
+    return re.findall(
+        '(?<=reviewlistingid=\")\d+(?=\")',
+        webdata, re.IGNORECASE)
+
+
+def gather_reviews(title):
     while True:
-        try:
-            browser.switch_to.window(browser.window_handles[0])
-            browser.get(url)
+        print('[worker {}] running'.format(title))
+        hid = que.get()
+        if hid is None:
+            print('[worker {}] shutting down'.format(title))
             break
-        except WebDriverException:
-            pass
-        except TimeoutException:
-            pass
+        indexDir = join(REVIEW_FOLDER, hid)
+        indexFile = join(indexDir, 'index.txt')
+        reviewFile = join(indexDir, 'result.txt')
+        rids = common.read_binary(indexFile)
+        del rids[0]
+        nrids = []
+        result = []
+        chunkSize = 500
+        sliceNum = math.ceil(len(rids) / chunkSize)
+        for slicePos in range(sliceNum):
+            spos = slicePos * chunkSize
+            epos = (slicePos + 1) * chunkSize \
+                if slicePos + 1 < sliceNum else len(rids)
+            id_string = ','.join(rids[spos: epos])
+            print('\t[hotel {}] from {} to {}'
+                  .format(hid, spos + 1, epos))
+            url = TA_ROOT + 'OverlayWidgetAjax?' + '&'.join(
+                ['Mode=EXPANDED_HOTEL_REVIEWS',
+                 'metaReferer=Hotel_Review',
+                 'reviews=' + id_string])
+            webData = requests.get(url)
+            webText = webData.text
+            result.append(webText)
+            nrids.extend(find_reviews(webText))
+            time.sleep(SLEEP_TIME)
+        if set(rids) == set(nrids):
+            common.write_file(reviewFile, '\r\n'.join(result))
+        else:
+            print('\ttry again later')
+            print('rid={}, nrid={}, {}'.format(
+                len(set(rids)), len(set(nrids)),
+                set(rids) == set(nrids)))
+            for item in rids:
+                if item not in nrids:
+                    print('\t\t'+item)
+            que.put(hid)
+        que.task_done()
 
 
-# premised on non-empty ID list
-def get_reviews(id_list):
-    #print(id_list)
-    nid_list = []
-    chunk_size = 500
-    slice_num = math.ceil(len(id_list) / chunk_size)
-    for slice_pos in range(slice_num):
-        spos = slice_pos*chunk_size
-        epos = (slice_pos+1)*chunk_size if slice_pos+1 < slice_num else len(id_list)
-        id_string = ','.join(id_list[spos: epos])
-        print('\tfrom {} to {}'.format(spos+1, epos))
-        #nid_list.extend(id_list[spos: epos])
-        url = TA_ROOT + '/OverlayWidgetAjax?' \
-                        'Mode=EXPANDED_HOTEL_REVIEWS&' \
-                        'metaReferer=Hotel_Review' \
-                        '&reviews=' + id_string
-        web_data = ''
-        try:
-            web_data = requests.get(url)
-        except:
-            pass
-        soup = BeautifulSoup(web_data.text, 'lxml')
-        for div in soup.find_all('div'):
-            if div.has_attr('reviewlistingid'):
-                #print(nid_list)
-                nid_list.append(div['reviewlistingid'])
-    if set(id_list) == set(nid_list):
-        # and len(id_list) == len(set(id_list))
-        return soup.prettify()
+def review_result_is_valid(hotelID):
+    indexDir = join(REVIEW_FOLDER, hotelID)
+    indexFile = join(indexDir, 'index.txt')
+    reviewFile = join(indexDir, 'result.txt')
+    rids = common.read_binary(indexFile)
+    if int(rids[0]) > 0:
+        if isfile(reviewFile):
+            del rids[0]
+            nrids = find_reviews(common.read_file(reviewFile))
+            if set(rids) != set(nrids):
+                print('[hotel {}] FAILED: corrupted'.format(hotelID))
+                os.remove(reviewFile)
+                return False
+            else:
+                print('[hotel {}] PASSED: verified'.format(hotelID))
+                return True
+        else:
+            return False
     else:
-        print('\tcorrupted')
-        return None
+        print('[hotel {}] PASSED: no reviews'.format(hotelID))
+        return True
 
 
-with open('hids.txt', 'rb') as fp:
-    hid_list = [ast.literal_eval(x)[HOTEL_ID] for x in pickle.load(fp)]
-    fp.close()
+que = queue.Queue()
+threads = []
+for j in range(REVIEW_THREAD_NUM):
+    t = threading.Thread(
+        target=gather_reviews, args=(str(j + 1))
+    )
+    t.start()
+    threads.append(t)
 
-cnt_skip = 0
-cnt_get = 0
-cnt_blank = 0
-for hid_item in hid_list:
-    index_dir = join(REVIEW_FOLDER, hid_item)
-    index_file = join(index_dir, 'index.txt')
-    review_file = join(index_dir, 'result.txt')
-    print('hotel {}'.format(hid_item))
-    if isfile(review_file):
-        print('\tskipped')
-        cnt_skip += 1
-        continue
-    with open(index_file, 'rb') as fp:
-        rids = [x for x in pickle.load(fp)]
-        fp.close()
-    del rids[0]
-    #print('{} reviews in hotel {}'.format(len(rids), hid_item))
-    if len(rids) == 0:
-        print('\tempty')
-        cnt_blank += 1
-        continue
+# push items into the queue
+[que.put(x[HOTEL_ID]) for x in common.read_binary('hids.txt')
+ if not review_result_is_valid(x[HOTEL_ID])]
 
-    result = get_reviews(rids)
-    if result is not None:
-        with open(review_file, 'w', encoding='utf8') as fp:
-            fp.write(result)
-            fp.close()
-        #print('\tdone')
-        cnt_get += 1
-    time.sleep(SLEEP_TIME)
-print('\r\n\r\n{} hotels, {} obtained, {} skipped, {} blank.'
-      .format(len(hid_list), cnt_get, cnt_skip, cnt_blank))
+# block until all tasks are done
+que.join()
 
+# stop workers
+for k in range(REVIEW_THREAD_NUM):
+    que.put(None)
+for t in threads:
+    t.join()
+
+print('all reviews are ready')
