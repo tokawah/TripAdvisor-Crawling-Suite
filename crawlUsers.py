@@ -14,21 +14,21 @@ import queue
 
 def gen_uid_index():
     print('retrieving user ids...\r\nthis could take several minutes.')
-    hidList = [x[HOTEL_ID] for x in common.read_binary('hids.txt')]
+    hid_list = [x[HOTEL_ID] for x in common.read_binary('hids.txt')]
     uids = []
-    for hidItem in hidList:
+    for hidItem in hid_list:
         review_file = join(join(REVIEW_FOLDER, hidItem), 'result.txt')
         if isfile(review_file):
-            webData = common.read_file(review_file)
-            m = re.findall('(?<=profile_)[0-9A-Z]{32}', webData)
+            web_data = common.read_file(review_file)
+            m = re.findall('(?<=profile_)[0-9A-Z]{32}', web_data)
             uids.extend(m)
         else:
             pass
-    uuids = list(set(uids))
+    unique_uids = list(set(uids))
     print('{} out of {} unique users'
-          .format(len(uuids), len(uids)))
-    common.write_binary('uids.txt', uuids)
-    return uuids
+          .format(len(unique_uids), len(uids)))
+    common.write_binary('uids.txt', unique_uids)
+    return unique_uids
 
 
 def gather_profiles(title):
@@ -40,26 +40,40 @@ def gather_profiles(title):
             break
         print('user {}'.format(uid))
         url = TA_ROOT + 'MemberOverlay?uid=' + uid
-        web_data = requests.get(url)
-        soup = BeautifulSoup(web_data.text, 'lxml')
-        time.sleep(SLEEP_TIME)
-        if profile_is_valid(soup):
-            uidFile = join(USER_FOLDER, uid + '.txt')
-            common.write_file(uidFile, soup.prettify())
+        simple_soup = common.load_soup_online(url).find(
+            'div', class_='memberOverlay')
+        profile_url = simple_soup.find(
+            'a', href=re.compile('^/members'))
+        result = []
+        if profile_url is not None:
+            profile_url = TA_ROOT + profile_url['href'].strip()
+            result.append(simple_soup.prettify())
+            detail_soup = common.load_soup_online(profile_url)
+            detail_soup = detail_soup.find(
+                'div', id='MODULES_MEMBER_CENTER')
+            if detail_soup is not None:
+                result.append(detail_soup.prettify())
+                uid_file = join(USER_FOLDER, uid + '.txt')
+                common.write_file(uid_file, '\r\n'.join(result))
+            else:
+                print('\ttry again later')
+                que.put(uid)
         else:
+            print('\ttry again later')
             que.put(uid)
+
+        time.sleep(SLEEP_TIME)
         que.task_done()
 
 
 def profile_is_valid(soup):
-    return len([x for x in soup.find_all('a')
-                if x.text.strip() == 'Full profile']) > 0
+    return soup.find('div', id='MODULES_MEMBER_CENTER') is not None
 
 
 def user_index_is_valid(uid):
-    uidFile = join(USER_FOLDER, uid + '.txt')
-    if isfile(uidFile):
-        soup = BeautifulSoup(common.read_file(uidFile), 'lxml')
+    uid_file = join(USER_FOLDER, uid + '.txt')
+    if isfile(uid_file):
+        soup = BeautifulSoup(common.read_file(uid_file), 'lxml')
         if profile_is_valid(soup):
             print('[user {}] PASSED: verified'.format(uid))
             return True
@@ -70,9 +84,9 @@ def user_index_is_valid(uid):
         return False
 
 
-uidList = common.read_binary('uids.txt') \
+uid_list = common.read_binary('uids.txt') \
     if isfile('uids.txt') else gen_uid_index()
-print('{} users found'.format(len(uidList)))
+print('{} users found'.format(len(uid_list)))
 
 que = queue.Queue()
 
@@ -85,7 +99,7 @@ for j in range(USER_THREAD_NUM):
     threads.append(t)
 
 # push items into the queue
-[que.put(x) for x in uidList if not user_index_is_valid(x)]
+[que.put(x) for x in uid_list if not user_index_is_valid(x)]
 
 # block until all tasks are done
 que.join()

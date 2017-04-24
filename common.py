@@ -1,16 +1,15 @@
 #!/usr/bin/python3
 # -*- coding:utf8 -*-
-
 import base64
 from bs4 import BeautifulSoup
 import requests
 import pickle
 
-SLEEP_TIME = 1
+SLEEP_TIME = 2
 SNIPPET_THREAD_NUM = 3
-DETAIL_THREAD_NUM = 5
-REVIEW_THREAD_NUM = 5
-USER_THREAD_NUM = 10
+DETAIL_THREAD_NUM = 3
+REVIEW_THREAD_NUM = 3
+USER_THREAD_NUM = 3
 
 HOTEL_PER_PAGE = 30
 REVIEW_PER_PAGE = 10

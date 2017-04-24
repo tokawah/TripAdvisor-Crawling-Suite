@@ -16,12 +16,12 @@ lock = threading.Lock()
 
 def find_hotel_ids(soup_container):
     page_hotels = []
-    for link in soup_container.find_all('div', id=re.compile('^hotel_')):
-        if link.has_attr('id'):
-            hid = link['id'][6:]
-            snippet = link.select('.metaLocationInfo')[0]
-            url = snippet.select('.listing_title')[0].find('a')['href']
-            page_hotels.append({HOTEL_ID: hid, HOTEL_URL: url[1:]})
+    for link in soup_container.find_all(
+            'div', id=re.compile('^hotel_')):
+        hid = link['id'][6:]
+        snippet = link.select('.metaLocationInfo')[0]
+        url = snippet.select('.listing_title')[0].find('a')['href']
+        page_hotels.append({HOTEL_ID: hid, HOTEL_URL: url[1:]})
     return page_hotels
 
 
@@ -68,10 +68,9 @@ def gather_hotels(title):
             'o=a' + str(pid * HOTEL_PER_PAGE),
             'pageSize=&rad=0', 'dateBumped=NONE',
             'displayedSortOrder=popularity'])
-        pageURL = ''.join([seed, '?', paras])
-        print('[page {}] {}'.format(pid+1, pageURL))
-        hotels = find_hotel_ids(common.load_soup_online(pageURL))
-        time.sleep(SLEEP_TIME)
+        page_url = ''.join([seed, '?', paras])
+        print('[page {}] {}'.format(pid+1, page_url))
+        hotels = find_hotel_ids(common.load_soup_online(page_url))
         if len(hotels) < HOTEL_PER_PAGE and pid < numPage - 1:
             que.put(pid)
         elif pid == numPage - 1 \
@@ -82,10 +81,13 @@ def gather_hotels(title):
                 update_hotel_ids(hotels, hidPairs)
                 print('\t#{}, totaling {}'.format(pid, len(hidPairs)))
                 common.write_binary('hids.txt', hidPairs)
+
+        time.sleep(SLEEP_TIME)
         que.task_done()
 
 
 seed = input('url: ')
+seed ='https://www.tripadvisor.com.au/Hotels-g294212-Beijing-Hotels.html'
 locID = re.sub('\D', '', seed)
 locName = seed[seed.index(locID) + len(locID) + 1:seed.rindex('-')]
 print('location: {} ({})'.format(locName.replace('_', ' '), locID))
@@ -110,8 +112,9 @@ while len(hidPairs) < numHotel:
         threads.append(t)
 
     # push items into the queue
+    # math.ceil(len(hidPairs) / HOTEL_PER_PAGE)
     [que.put(x) for x in
-     range(math.ceil(len(hidPairs) / HOTEL_PER_PAGE), numPage)]
+     range(0, numPage)]
 
     # block until all tasks are done
     que.join()

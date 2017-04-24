@@ -13,10 +13,10 @@ import queue
 import threading
 
 
-def find_reviews(webdata):
+def find_reviews(web_data):
     return re.findall(
         '(?<=reviewlistingid=\")\d+(?=\")',
-        webdata, re.IGNORECASE)
+        web_data, re.IGNORECASE)
 
 
 def gather_reviews(title):
@@ -26,19 +26,20 @@ def gather_reviews(title):
         if hid is None:
             print('[worker {}] shutting down'.format(title))
             break
-        indexDir = join(REVIEW_FOLDER, hid)
-        indexFile = join(indexDir, 'index.txt')
-        reviewFile = join(indexDir, 'result.txt')
-        rids = common.read_binary(indexFile)
+        index_dir = join(REVIEW_FOLDER, hid)
+        index_file = join(index_dir, 'index.txt')
+        review_file = join(index_dir, 'result.txt')
+        rids = common.read_binary(index_file)
         del rids[0]
-        nrids = []
+        new_rids = []
         result = []
-        chunkSize = 500
-        sliceNum = math.ceil(len(rids) / chunkSize)
-        for slicePos in range(sliceNum):
-            spos = slicePos * chunkSize
-            epos = (slicePos + 1) * chunkSize \
-                if slicePos + 1 < sliceNum else len(rids)
+        chunk_size = 500
+        slice_num = math.ceil(len(rids) / chunk_size)
+        for slicePos in range(slice_num):
+            time.sleep(SLEEP_TIME)
+            spos = slicePos * chunk_size
+            epos = (slicePos + 1) * chunk_size \
+                if slicePos + 1 < slice_num else len(rids)
             id_string = ','.join(rids[spos: epos])
             print('\t[hotel {}] from {} to {}'
                   .format(hid, spos + 1, epos))
@@ -46,45 +47,44 @@ def gather_reviews(title):
                 ['Mode=EXPANDED_HOTEL_REVIEWS',
                  'metaReferer=Hotel_Review',
                  'reviews=' + id_string])
-            webData = requests.get(url)
-            webText = webData.text
-            result.append(webText)
-            nrids.extend(find_reviews(webText))
-            time.sleep(SLEEP_TIME)
-        if set(rids) == set(nrids):
-            common.write_file(reviewFile, '\r\n'.join(result))
+            web_data = requests.get(url)
+            web_text = web_data.text
+            result.append(web_text)
+            new_rids.extend(find_reviews(web_text))
+        if set(rids) == set(new_rids):
+            common.write_file(review_file, '\r\n'.join(result))
         else:
             print('\ttry again later')
             print('rid={}, nrid={}, {}'.format(
-                len(set(rids)), len(set(nrids)),
-                set(rids) == set(nrids)))
+                len(set(rids)), len(set(new_rids)),
+                set(rids) == set(new_rids)))
             for item in rids:
-                if item not in nrids:
+                if item not in new_rids:
                     print('\t\t'+item)
             que.put(hid)
         que.task_done()
 
 
-def review_result_is_valid(hotelID):
-    indexDir = join(REVIEW_FOLDER, hotelID)
-    indexFile = join(indexDir, 'index.txt')
-    reviewFile = join(indexDir, 'result.txt')
-    rids = common.read_binary(indexFile)
+def review_result_is_valid(hotel_id):
+    index_dir = join(REVIEW_FOLDER, hotel_id)
+    index_file = join(index_dir, 'index.txt')
+    review_file = join(index_dir, 'result.txt')
+    rids = common.read_binary(index_file)
     if int(rids[0]) > 0:
-        if isfile(reviewFile):
+        if isfile(review_file):
             del rids[0]
-            nrids = find_reviews(common.read_file(reviewFile))
-            if set(rids) != set(nrids):
-                print('[hotel {}] FAILED: corrupted'.format(hotelID))
-                os.remove(reviewFile)
+            new_rids = find_reviews(common.read_file(review_file))
+            if set(rids) != set(new_rids):
+                print('[hotel {}] FAILED: corrupted'.format(hotel_id))
+                os.remove(review_file)
                 return False
             else:
-                print('[hotel {}] PASSED: verified'.format(hotelID))
+                print('[hotel {}] PASSED: verified'.format(hotel_id))
                 return True
         else:
             return False
     else:
-        print('[hotel {}] PASSED: no reviews'.format(hotelID))
+        print('[hotel {}] PASSED: no reviews'.format(hotel_id))
         return True
 
 

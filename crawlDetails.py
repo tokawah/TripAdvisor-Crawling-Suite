@@ -23,37 +23,38 @@ def find_review_ids(url):
     response = session.get(url)
     soup = BeautifulSoup(response.text, 'lxml')
     source = soup.prettify()
-    numReview = find_num_review(soup)
-    numPage = calc_max_page(soup)
+    num_review = find_num_review(soup)
+    num_page = calc_max_page(soup)
 
     reviews = []
-    if numReview == 0:
+    if num_review == 0:
         print('\tno review at all')
-        reviews.insert(0, str(numReview))
+        reviews.insert(0, str(num_review))
     else:
         print('\t{} reviews in {} pages'
-              .format(numReview, numPage))
+              .format(num_review, num_page))
         url_pattern = '-Reviews-'
         url_pos = url.index(url_pattern) + len(url_pattern)
-        for i in range(0, numPage):
-            pageURL = url if i == 0 else ''.join(
+        for i in range(0, num_page):
+            time.sleep(SLEEP_TIME)
+            page_url = url if i == 0 else ''.join(
                 [url[:url_pos], 'or', str(i * REVIEW_PER_PAGE),
                  '-', url[url_pos:]])
-            response = session.get(pageURL + '#REVIEWS')
+            response = session.get(page_url + '#REVIEWS')
             items = match_review_ids(response.text)
             if DETAIL_THREAD_NUM == 1:
                 print('[page {}] {} reviews'
                       .format(i+1, len(items)))
-            if len(items) < REVIEW_PER_PAGE and i < numPage-1:
+            if len(items) < REVIEW_PER_PAGE and i < num_page-1:
                 break
-            elif i == numPage-1 \
-                    and len(items) < numReview % REVIEW_PER_PAGE:
+            elif i == num_page-1 and \
+                    len(items) < num_review % REVIEW_PER_PAGE:
                 break
             else:
                 reviews.extend(items)
-        if len(set(reviews)) >= numReview:
+        if len(set(reviews)) >= num_review:
             print('\t{} reviews retrieved'.format(len(reviews)))
-            reviews.insert(0, str(numReview))
+            reviews.insert(0, str(num_review))
         else:
             reviews = None
             print('\t\tcorrupted')
@@ -61,8 +62,8 @@ def find_review_ids(url):
     return source, reviews
 
 
-def match_review_ids(pageSource):
-    return re.findall('(?<=review_)\d+', pageSource)
+def match_review_ids(page_source):
+    return re.findall('(?<=review_)\d+', page_source)
 
 
 def find_max_page(soup):
@@ -83,24 +84,24 @@ def find_num_review(soup):
     return 0 if div is None else int(re.sub('\D', '', div.text))
 
 
-def review_index_is_valid(hotelID):
-    ridFile = join(join(REVIEW_FOLDER, hotelID), 'index.txt')
-    if isfile(ridFile):
+def review_index_is_valid(hotel_id):
+    rid_file = join(join(REVIEW_FOLDER, hotel_id), 'index.txt')
+    if isfile(rid_file):
         try:
-            rids = common.read_binary(ridFile)
+            rids = common.read_binary(rid_file)
             num = int(rids[0])
             del rids[0]
             set_size = len(set(rids))
             if num > set_size:
-                print('[hotel {}] FAILED: corrupted'.format(hotelID))
+                print('[hotel {}] FAILED: corrupted'.format(hotel_id))
                 # delete the corrupted file
-                os.remove(ridFile)
+                os.remove(rid_file)
                 return False
             elif num < set_size:
-                print('[hotel {}] PASSED: extra reviews'.format(hotelID))
+                print('[hotel {}] PASSED: extra reviews'.format(hotel_id))
                 return True
             else:
-                print('[hotel {}] PASSED: verified'.format(hotelID))
+                print('[hotel {}] PASSED: verified'.format(hotel_id))
                 return True
         except IndexError:
             return False
@@ -111,26 +112,25 @@ def review_index_is_valid(hotelID):
 def gather_review_ids(title):
     while True:
         print('[worker {}] running'.format(title))
-        curPair = que.get()
-        if curPair is None:
+        cur_pair = que.get()
+        if cur_pair is None:
             print('[worker {}] shutting down'.format(title))
             break
-        hurl = TA_ROOT + curPair[HOTEL_URL]
-        hid = curPair[HOTEL_ID]
+        hurl = TA_ROOT + cur_pair[HOTEL_URL]
+        hid = cur_pair[HOTEL_ID]
         print('[hotel {}] {}'.format(hid, hurl))
-        pageSource, ridList = find_review_ids(hurl)
-        detailFile = join(HOTEL_FOLDER, hid + '.txt')
-        common.write_file(detailFile, pageSource)
-        time.sleep(SLEEP_TIME)
-        if ridList is not None:
-            indexFolder = join(REVIEW_FOLDER, hid)
-            if not os.path.exists(indexFolder):
-                os.makedirs(indexFolder)
-            indexFile = join(indexFolder, 'index.txt')
-            common.write_binary(indexFile, ridList)
+        page_source, rid_list = find_review_ids(hurl)
+        detail_file = join(HOTEL_FOLDER, hid + '.txt')
+        common.write_file(detail_file, page_source)
+        if rid_list is not None:
+            index_folder = join(REVIEW_FOLDER, hid)
+            if not os.path.exists(index_folder):
+                os.makedirs(index_folder)
+            index_file = join(index_folder, 'index.txt')
+            common.write_binary(index_file, rid_list)
         else:
             print('\ttry again later')
-            que.put(curPair)
+            que.put(cur_pair)
         que.task_done()
 
 
