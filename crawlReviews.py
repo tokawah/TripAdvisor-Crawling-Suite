@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # -*- coding:utf8 -*-
 import common
-from common import HOTEL_ID, REVIEW_FOLDER
+from common import REVIEW_FOLDER
 from common import TA_ROOT, SLEEP_TIME, REVIEW_THREAD_NUM
 from os.path import isfile, join
 import requests
@@ -11,6 +11,7 @@ import re
 import os
 import queue
 import threading
+import ast
 
 
 def find_reviews(web_data):
@@ -98,8 +99,9 @@ for j in range(REVIEW_THREAD_NUM):
     threads.append(t)
 
 # push items into the queue
-[que.put(x[HOTEL_ID]) for x in common.read_binary('hids.txt')
- if not review_result_is_valid(x[HOTEL_ID])]
+hid_pairs = ast.literal_eval(common.read_file('hids.txt'))
+[que.put(key) for key in ast.literal_eval(
+    common.read_file('hids.txt')) if not review_result_is_valid(key)]
 
 # block until all tasks are done
 que.join()

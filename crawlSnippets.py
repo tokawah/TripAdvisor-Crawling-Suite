@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # -*- coding:utf8 -*-
 import common
-from common import HOTEL_ID, HOTEL_URL, SLEEP_TIME
+from common import SLEEP_TIME
 from common import HOTEL_PER_PAGE, SNIPPET_THREAD_NUM
 from os.path import isfile
 import re
@@ -9,42 +9,15 @@ import math
 import threading
 import queue
 import time
-
+import ast
 
 lock = threading.Lock()
-
-
-def find_hotel_ids(soup_container):
-    page_hotels = []
-    for link in soup_container.find_all(
-            'div', id=re.compile('^hotel_')):
-        hid = link['id'][6:]
-        snippet = link.select('.metaLocationInfo')[0]
-        url = snippet.select('.listing_title')[0].find('a')['href']
-        page_hotels.append({HOTEL_ID: hid, HOTEL_URL: url[1:]})
-    return page_hotels
-
-
-def update_hotel_ids(new_pairs, pair_list):
-    def has_pair(id_value):
-        return id_value in [x[HOTEL_ID] for x in pair_list]
-
-    for new_pair in new_pairs:
-        if not has_pair(new_pair[HOTEL_ID]):
-            pair_list.append(new_pair)
-        else:
-            # duplicate hotel id
-            pass
 
 
 def find_max_page(soup_container):
     div = soup_container.find('div', class_='pageNumbers')
     num = div.find_all('a')[-1]
     return int(num['data-page-number'])
-
-
-def calc_max_page(soup_container):
-    return math.ceil(find_num_hotels(soup_container) / HOTEL_PER_PAGE)
 
 
 def find_num_hotels(soup_container):
@@ -55,6 +28,26 @@ def find_num_hotels(soup_container):
 
 
 def gather_hotels(title):
+    def calc_max_page(soup_container):
+        return math.ceil(find_num_hotels(soup_container) / HOTEL_PER_PAGE)
+
+    def find_hotel_ids(soup_container):
+        page_hotels = []
+        for link in soup_container.find_all(
+                'div', id=re.compile('^hotel_')):
+            hid = link['id'][6:]
+            snippet = link.select('.metaLocationInfo')[0]
+            url = snippet.select('.listing_title')[0].find('a')['href']
+            page_hotels.append({hid: url[1:]})
+        return page_hotels
+
+    def update_hotel_ids(new_pairs, pair_list):
+        for new_pair in new_pairs:
+            pair_key, pair_value = next(iter(new_pair.items()))
+            # if hotel id not duplicate
+            if pair_key not in pair_list:
+                pair_list[pair_key] = pair_value
+
     while True:
         print('[worker {}] running'.format(title))
         pid = que.get()
@@ -80,14 +73,13 @@ def gather_hotels(title):
             with lock:
                 update_hotel_ids(hotels, hidPairs)
                 print('\t#{}, totaling {}'.format(pid, len(hidPairs)))
-                common.write_binary('hids.txt', hidPairs)
+                common.write_file('hids.txt', str(hidPairs))
 
         time.sleep(SLEEP_TIME)
         que.task_done()
 
 
 seed = input('url: ')
-seed ='https://www.tripadvisor.com.au/Hotels-g294212-Beijing-Hotels.html'
 locID = re.sub('\D', '', seed)
 locName = seed[seed.index(locID) + len(locID) + 1:seed.rindex('-')]
 print('location: {} ({})'.format(locName.replace('_', ' '), locID))
@@ -96,7 +88,9 @@ numPage = find_max_page(soup)
 numHotel = find_num_hotels(soup)
 print('{} hotels in {} pages'.format(numHotel, numPage))
 
-hidPairs = common.read_binary('hids.txt') if isfile('hids.txt') else []
+if not isfile('hids.txt'):
+    common.write_file('hids.txt', '{}')
+hidPairs = ast.literal_eval(common.read_file('hids.txt'))
 print('{} hotels in the local list'.format(len(hidPairs)))
 
 # collecting hotel ids might take multiple iterations
@@ -112,9 +106,9 @@ while len(hidPairs) < numHotel:
         threads.append(t)
 
     # push items into the queue
-    # math.ceil(len(hidPairs) / HOTEL_PER_PAGE)
-    [que.put(x) for x in
-     range(0, numPage)]
+    # set start value to math.ceil(len(hidPairs) / HOTEL_PER_PAGE)
+    # rather than 0 if the hotels are ordered in the list
+    [que.put(x) for x in range(0, numPage)]
 
     # block until all tasks are done
     que.join()

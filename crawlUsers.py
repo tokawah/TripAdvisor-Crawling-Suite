@@ -1,20 +1,19 @@
 #!/usr/bin/python3
 # -*- coding:utf8 -*-
 import common
-from common import HOTEL_ID, REVIEW_FOLDER, USER_FOLDER
+from common import REVIEW_FOLDER, USER_FOLDER
 from common import TA_ROOT, SLEEP_TIME, USER_THREAD_NUM
 from os.path import isfile, join
 import re
-import requests
-from bs4 import BeautifulSoup
 import time
 import threading
 import queue
+import ast
 
 
 def gen_uid_index():
     print('retrieving user ids...\r\nthis could take several minutes.')
-    hid_list = [x[HOTEL_ID] for x in common.read_binary('hids.txt')]
+    hid_list = ast.literal_eval(common.read_file('hids.txt')).keys()
     uids = []
     for hidItem in hid_list:
         review_file = join(join(REVIEW_FOLDER, hidItem), 'result.txt')
@@ -42,11 +41,13 @@ def gather_profiles(title):
         url = TA_ROOT + 'MemberOverlay?uid=' + uid
         simple_soup = common.load_soup_online(url).find(
             'div', class_='memberOverlay')
-        profile_url = simple_soup.find(
-            'a', href=re.compile('^/members'))
+        nav_soup = simple_soup.find('div', class_='baseNav')
+        profile_url = None if nav_soup is None else \
+            [x['href'] for x in nav_soup.findAll(
+                'a') if 'profile' in x.getText()][0]
         result = []
         if profile_url is not None:
-            profile_url = TA_ROOT + profile_url['href'].strip()
+            profile_url = TA_ROOT + profile_url.strip()
             result.append(simple_soup.prettify())
             detail_soup = common.load_soup_online(profile_url)
             detail_soup = detail_soup.find(
@@ -73,7 +74,7 @@ def profile_is_valid(soup):
 def user_index_is_valid(uid):
     uid_file = join(USER_FOLDER, uid + '.txt')
     if isfile(uid_file):
-        soup = BeautifulSoup(common.read_file(uid_file), 'lxml')
+        soup = common.load_soup_local(uid_file)
         if profile_is_valid(soup):
             print('[user {}] PASSED: verified'.format(uid))
             return True

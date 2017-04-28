@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # -*- coding:utf8 -*-
 import common
-from common import HOTEL_ID, HOTEL_URL, SLEEP_TIME
+from common import SLEEP_TIME
 from common import HOTEL_FOLDER, REVIEW_FOLDER, TA_ROOT
 from common import REVIEW_PER_PAGE, DETAIL_THREAD_NUM
 from os.path import isfile, join
@@ -13,18 +13,37 @@ import re
 import threading
 import queue
 import requests
+import ast
 
 
 def find_review_ids(url):
+    def calc_max_page(soup):
+        return math.ceil(find_num_review(soup) / REVIEW_PER_PAGE)
+
+    def find_num_review(soup):
+        div = soup.find('a', class_='more taLnk')
+        return 0 if div is None else int(re.sub('\D', '', div.text))
+
+    def match_review_ids(page_source):
+        return re.findall('(?<=review_)\d+', page_source)
+
+    def find_max_page(soup):
+        div = soup.find('div', class_='pageNumbers')
+        if div is None:
+            return 1 if match_review_ids(soup) else 0
+        else:
+            num = div.find_all('a')[-1]
+            return int(num['data-offset']) / REVIEW_PER_PAGE + 1
+
     session = requests.Session()
     paras = {'filterLang': 'ALL'}
     headers = {'X-Requested-With': 'XMLHttpRequest'}
     session.post(url, data=paras, headers=headers)
     response = session.get(url)
-    soup = BeautifulSoup(response.text, 'lxml')
-    source = soup.prettify()
-    num_review = find_num_review(soup)
-    num_page = calc_max_page(soup)
+    response_soup = BeautifulSoup(response.text, 'lxml')
+    source = response_soup.prettify()
+    num_review = find_num_review(response_soup)
+    num_page = calc_max_page(response_soup)
 
     reviews = []
     if num_review == 0:
@@ -62,28 +81,6 @@ def find_review_ids(url):
     return source, reviews
 
 
-def match_review_ids(page_source):
-    return re.findall('(?<=review_)\d+', page_source)
-
-
-def find_max_page(soup):
-    div = soup.find('div', class_='pageNumbers')
-    if div is None:
-        return 1 if match_review_ids(soup) else 0
-    else:
-        num = div.find_all('a')[-1]
-        return int(num['data-offset'])/REVIEW_PER_PAGE+1
-
-
-def calc_max_page(soup):
-    return math.ceil(find_num_review(soup)/REVIEW_PER_PAGE)
-
-
-def find_num_review(soup):
-    div = soup.find('a', class_='more taLnk')
-    return 0 if div is None else int(re.sub('\D', '', div.text))
-
-
 def review_index_is_valid(hotel_id):
     rid_file = join(join(REVIEW_FOLDER, hotel_id), 'index.txt')
     if isfile(rid_file):
@@ -116,8 +113,8 @@ def gather_review_ids(title):
         if cur_pair is None:
             print('[worker {}] shutting down'.format(title))
             break
-        hurl = TA_ROOT + cur_pair[HOTEL_URL]
-        hid = cur_pair[HOTEL_ID]
+        hid, hurl = next(iter(cur_pair.items()))
+        hurl = TA_ROOT + hurl
         print('[hotel {}] {}'.format(hid, hurl))
         page_source, rid_list = find_review_ids(hurl)
         detail_file = join(HOTEL_FOLDER, hid + '.txt')
@@ -145,9 +142,9 @@ for j in range(DETAIL_THREAD_NUM):
     threads.append(t)
 
 # push items into the queue
-hidPairs = [x for x in common.read_binary('hids.txt')]
-[que.put(x) for x in hidPairs if not
-    review_index_is_valid(x[HOTEL_ID])]
+hid_pairs = ast.literal_eval(common.read_file('hids.txt'))
+[que.put({key: hid_pairs[key]}) for key in hid_pairs
+ if not review_index_is_valid(key)]
 
 # block until all tasks are done
 que.join()

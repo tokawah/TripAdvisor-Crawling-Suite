@@ -19,9 +19,6 @@ REVIEW_FOLDER = 'reviews'
 USER_FOLDER = 'users'
 
 TA_ROOT = 'https://www.tripadvisor.com.au/'
-HOTEL_ID = 'hid'
-HOTEL_URL = 'url'
-USER_ID = 'uid'
 
 
 def load_soup_local(file_name):
