@@ -1,8 +1,12 @@
+# DISCLAIMER
+
+The source codes in curent repository are provided for general Python programming learning purpose only. Your use of any of these source codes is at your own risk.
+
 # TripAdvisor Crawler
 
 Not only the abundant travel information, but over 500 million valuable traveller reviews make TripAdvisor one of the most prestigious online travel platforms it is today. Over the past two decades, TripAdvisor has proven itself viable by adopting user-generated content that people throughout the world can refer to. Despite the acquisition of such content is demanding, its potential in a variety of advanced tasks rather than mere interaction is worth investigation. In addition to several constraints, current official APIs only allow limited fields and amount of data on a daily basis, and hence collecting large-scale of comprehensive sources in reasonable time seems practically impossible.
 
-This project offers a faster and more flexible two-in-one alternative to the official APIs: the crawler collectecs online hotel records via multi-threading web analysis, while the extractor parses local results. Given a location, the crawler sends a query to TripAdvisor and indexes the resulting hotels; the crawler then fetches the home page and relevant reviews of each hotel; reviewer profiles are also collected where possible. All crawling results are stored as raw HTML to preserve maximum information, from which the extrator can select different levels of data fields. For example, hotel address and amenities, the room type a review mentions, and the number of cities a reviewer has visited.
+This work offers a faster and more flexible two-in-one alternative to the official APIs: the crawler collectecs online hotel records via multi-threading web analysis, while the extractor parses local results. Given a location, the crawler sends a query to TripAdvisor and indexes the resulting hotels; the crawler then fetches the home page and relevant reviews of each hotel; reviewer profiles are also collected where possible. All crawling results are stored as raw HTML to preserve maximum information, from which the extrator can select different levels of data fields. For example, hotel address and amenities, the room type a review mentions, and the number of cities a reviewer has visited.
 
 
 ## Instructions
