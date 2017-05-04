@@ -21,6 +21,12 @@ def find_reviews(web_data):
 
 
 def gather_reviews(title):
+    def gen_review_url(rid):
+        return TA_ROOT + 'OverlayWidgetAjax?' + '&'.join(
+                ['Mode=EXPANDED_HOTEL_REVIEWS',
+                 'metaReferer=Hotel_Review',
+                 'reviews=' + rid])
+
     while True:
         print('[worker {}] running'.format(title))
         hid = que.get()
@@ -44,24 +50,29 @@ def gather_reviews(title):
             id_string = ','.join(rids[spos: epos])
             print('\t[hotel {}] from {} to {}'
                   .format(hid, spos + 1, epos))
-            url = TA_ROOT + 'OverlayWidgetAjax?' + '&'.join(
-                ['Mode=EXPANDED_HOTEL_REVIEWS',
-                 'metaReferer=Hotel_Review',
-                 'reviews=' + id_string])
+            url = gen_review_url(id_string)
             web_data = requests.get(url)
             web_text = web_data.text
             result.append(web_text)
             new_rids.extend(find_reviews(web_text))
-        if set(rids) == set(new_rids):
+        diff_flag = False
+        diff_set = set(rids).difference(set(new_rids))
+        for diff in diff_set:
+            url = gen_review_url(diff)
+            web_data = requests.get(url)
+            if len(find_reviews(web_data.text)) > 0:
+                diff_flag = True
+                print('{} is not empty'.format(diff))
+                break
+        if not diff_flag:
+            if diff_set:
+                new_rids.insert(0, len(new_rids))
+                common.write_binary(index_file, new_rids)
+                print('\t[hotel {}] review indexes updated'.format(hid))
             common.write_file(review_file, '\r\n'.join(result))
         else:
             print('\ttry again later')
-            print('rid={}, nrid={}, {}'.format(
-                len(set(rids)), len(set(new_rids)),
-                set(rids) == set(new_rids)))
-            for item in rids:
-                if item not in new_rids:
-                    print('\t\t'+item)
+            print('\t{}'.format(diff_set))
             que.put(hid)
         que.task_done()
 
