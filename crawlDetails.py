@@ -83,7 +83,8 @@ def find_review_ids(url):
 
 def review_index_is_valid(hotel_id):
     rid_file = join(join(REVIEW_FOLDER, hotel_id), 'index.txt')
-    if isfile(rid_file):
+    detail_file = join(HOTEL_FOLDER, hotel_id + '.txt')
+    if isfile(rid_file) and isfile(detail_file):
         try:
             rids = common.read_binary(rid_file)
             num = int(rids[0])
