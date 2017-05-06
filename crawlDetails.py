@@ -14,6 +14,9 @@ import threading
 import queue
 import requests
 import ast
+import logging
+
+logger = logging.getLogger()
 
 
 def find_review_ids(url):
@@ -47,10 +50,10 @@ def find_review_ids(url):
 
     reviews = []
     if num_review == 0:
-        print('\tno review at all')
+        logger.info('\tno review at all')
         reviews.insert(0, str(num_review))
     else:
-        print('\t{} reviews in {} pages'
+        logger.info('\t{} reviews in {} pages'
               .format(num_review, num_page))
         url_pattern = '-Reviews-'
         url_pos = url.index(url_pattern) + len(url_pattern)
@@ -62,7 +65,7 @@ def find_review_ids(url):
             response = session.get(page_url + '#REVIEWS')
             items = match_review_ids(response.text)
             if DETAIL_THREAD_NUM == 1:
-                print('[page {}] {} reviews'
+                logger.info('[page {}] {} reviews'
                       .format(i+1, len(items)))
             if len(items) < REVIEW_PER_PAGE and i < num_page-1:
                 break
@@ -72,18 +75,19 @@ def find_review_ids(url):
             else:
                 reviews.extend(items)
         if len(set(reviews)) >= num_review:
-            print('\t{} reviews retrieved'.format(len(reviews)))
+            logger.info('\t{} reviews retrieved'.format(len(reviews)))
             reviews.insert(0, str(num_review))
         else:
             reviews = None
-            print('\t\tcorrupted')
+            logger.info('\t\tcorrupted')
     session.close()
     return source, reviews
 
 
-def review_index_is_valid(hotel_id):
-    rid_file = join(join(REVIEW_FOLDER, hotel_id), 'index.txt')
-    detail_file = join(HOTEL_FOLDER, hotel_id + '.txt')
+def review_index_is_valid(loc, hotel_id):
+    rid_file = join(loc, join(
+        join(REVIEW_FOLDER, hotel_id), 'index.txt'))
+    detail_file = join(loc, join(HOTEL_FOLDER, hotel_id + '.txt'))
     if isfile(rid_file) and isfile(detail_file):
         try:
             rids = common.read_binary(rid_file)
@@ -91,15 +95,15 @@ def review_index_is_valid(hotel_id):
             del rids[0]
             set_size = len(set(rids))
             if num > set_size:
-                print('[hotel {}] FAILED: corrupted'.format(hotel_id))
+                logger.info('[hotel {}] FAILED: corrupted'.format(hotel_id))
                 # delete the corrupted file
                 os.remove(rid_file)
                 return False
             elif num < set_size:
-                print('[hotel {}] PASSED: extra reviews'.format(hotel_id))
+                logger.info('[hotel {}] PASSED: extra reviews'.format(hotel_id))
                 return True
             else:
-                print('[hotel {}] PASSED: verified'.format(hotel_id))
+                logger.info('[hotel {}] PASSED: verified'.format(hotel_id))
                 return True
         except IndexError:
             return False
@@ -107,53 +111,53 @@ def review_index_is_valid(hotel_id):
         return False
 
 
-def gather_review_ids(title):
-    while True:
-        print('[worker {}] running'.format(title))
-        cur_pair = que.get()
-        if cur_pair is None:
-            print('[worker {}] shutting down'.format(title))
-            break
-        hid, hurl = next(iter(cur_pair.items()))
-        hurl = TA_ROOT + hurl
-        print('[hotel {}] {}'.format(hid, hurl))
-        page_source, rid_list = find_review_ids(hurl)
-        detail_file = join(HOTEL_FOLDER, hid + '.txt')
-        common.write_file(detail_file, page_source)
-        if rid_list is not None:
-            index_folder = join(REVIEW_FOLDER, hid)
-            if not os.path.exists(index_folder):
-                os.makedirs(index_folder)
-            index_file = join(index_folder, 'index.txt')
-            common.write_binary(index_file, rid_list)
-        else:
-            print('\ttry again later')
-            que.put(cur_pair)
-        que.task_done()
+def start(loc):
+    def gather_review_ids(title):
+        while True:
+            logger.info('[worker {}] running'.format(title))
+            cur_pair = que.get()
+            if cur_pair is None:
+                logger.info('[worker {}] shutting down'.format(title))
+                break
+            hid, hurl = next(iter(cur_pair.items()))
+            hurl = TA_ROOT + hurl
+            logger.info('[hotel {}] {}'.format(hid, hurl))
+            page_source, rid_list = find_review_ids(hurl)
+            detail_file = join(loc, join(HOTEL_FOLDER, hid + '.txt'))
+            common.write_file(detail_file, page_source)
+            if rid_list is not None:
+                index_folder = join(loc, join(REVIEW_FOLDER, hid))
+                if not os.path.exists(index_folder):
+                    os.makedirs(index_folder)
+                index_file = join(index_folder, 'index.txt')
+                common.write_binary(index_file, rid_list)
+            else:
+                logger.info('\ttry again later')
+                que.put(cur_pair)
+            que.task_done()
+    que = queue.Queue()
 
+    threads = []
+    for j in range(DETAIL_THREAD_NUM):
+        t = threading.Thread(
+            target=gather_review_ids, args=(str(j + 1))
+        )
+        t.start()
+        threads.append(t)
 
-que = queue.Queue()
+    # push items into the queue
+    hid_pairs = ast.literal_eval(
+        common.read_file(join(loc, 'hids.txt')))
+    [que.put({key: hid_pairs[key]}) for key in hid_pairs
+     if not review_index_is_valid(loc, key)]
 
-threads = []
-for j in range(DETAIL_THREAD_NUM):
-    t = threading.Thread(
-        target=gather_review_ids, args=(str(j + 1))
-    )
-    t.start()
-    threads.append(t)
+    # block until all tasks are done
+    que.join()
 
-# push items into the queue
-hid_pairs = ast.literal_eval(common.read_file('hids.txt'))
-[que.put({key: hid_pairs[key]}) for key in hid_pairs
- if not review_index_is_valid(key)]
+    # stop workers
+    for k in range(DETAIL_THREAD_NUM):
+        que.put(None)
+    for t in threads:
+        t.join()
 
-# block until all tasks are done
-que.join()
-
-# stop workers
-for k in range(DETAIL_THREAD_NUM):
-    que.put(None)
-for t in threads:
-    t.join()
-
-print('all review ids are ready')
+    logger.info('all review ids are ready')

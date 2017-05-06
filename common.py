@@ -21,13 +21,13 @@ USER_FOLDER = 'users'
 TA_ROOT = 'https://www.tripadvisor.com.au/'
 
 
-def load_soup_local(file_name):
-    file = read_file(file_name)
+def load_soup_local(fn):
+    file = read_file(fn)
     return BeautifulSoup(file, 'lxml')
 
 
-def load_soup_online(soup_url):
-    req = requests.get(soup_url)
+def load_soup_online(url):
+    req = requests.get(url)
     data = req.text
     req.close()
     return BeautifulSoup(data, 'lxml')
