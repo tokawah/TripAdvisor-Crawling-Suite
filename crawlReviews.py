@@ -1,8 +1,7 @@
 #!/usr/bin/python3
 # -*- coding:utf8 -*-
 import common
-from common import REVIEW_FOLDER
-from common import TA_ROOT, SLEEP_TIME, REVIEW_THREAD_NUM
+from common import REVIEW_FOLDER, TA_ROOT
 from os.path import isfile, join
 import requests
 import time
@@ -15,6 +14,7 @@ import ast
 import logging
 
 logger = logging.getLogger()
+CHUNK_SIZE = 500
 
 
 def find_reviews(web_data):
@@ -67,12 +67,11 @@ def start(loc):
             del rids[0]
             new_rids = []
             result = []
-            chunk_size = 500
-            slice_num = math.ceil(len(rids) / chunk_size)
+            slice_num = math.ceil(len(rids) / CHUNK_SIZE)
             for slicePos in range(slice_num):
-                time.sleep(SLEEP_TIME)
-                spos = slicePos * chunk_size
-                epos = (slicePos + 1) * chunk_size \
+                time.sleep(common.SLEEP_TIME)
+                spos = slicePos * CHUNK_SIZE
+                epos = (slicePos + 1) * CHUNK_SIZE \
                     if slicePos + 1 < slice_num else len(rids)
                 id_string = ','.join(rids[spos: epos])
                 logger.info('\t[hotel {}] from {} to {}'
@@ -104,8 +103,12 @@ def start(loc):
             que.task_done()
 
     que = queue.Queue()
+    hid_pairs = ast.literal_eval(
+        common.read_file(join(loc, 'hids.txt')))
+
     threads = []
-    for j in range(REVIEW_THREAD_NUM):
+    thread_size = min(common.REVIEW_THREAD_NUM, len(hid_pairs))
+    for j in range(thread_size):
         t = threading.Thread(
             target=gather_reviews, args=(str(j + 1))
         )
@@ -114,17 +117,18 @@ def start(loc):
 
     # push items into the queue
     # hid_pairs = ast.literal_eval(common.read_file('hids.txt'))
-    [que.put(key) for key in ast.literal_eval(
-        common.read_file(join(loc, 'hids.txt')))
+    [que.put(key) for key in hid_pairs
      if not review_result_is_valid(loc, key)]
 
     # block until all tasks are done
     que.join()
 
     # stop workers
-    for k in range(REVIEW_THREAD_NUM):
+    for k in range(thread_size):
         que.put(None)
     for t in threads:
         t.join()
 
     logger.info('all reviews are ready')
+    common.write_file(join(loc, 'ok'), '')
+    print('write ok')

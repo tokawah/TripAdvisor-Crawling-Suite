@@ -2,7 +2,7 @@
 # -*- coding:utf8 -*-
 import common
 from common import REVIEW_FOLDER
-from userExtractor import User
+from userExtractor import rawUser
 from os.path import join
 import re
 
@@ -14,26 +14,31 @@ def find_rating_value(value_soup):
         re.sub('\D', '', value_bar['class'][1])) / 10)
 
 
-class Reviews:
+class rawReviews:
     # travel_type = {'Families', 'Couples', 'Solo', 'Business', 'Friends'}
 
-    def __init__(self, hid):
+    def __init__(self, lid, hid):
+        self.lid = lid
         self.hid = hid
-        review_file = join(join(REVIEW_FOLDER, hid), 'result.txt')
+        review_file = join(join(lid, join(REVIEW_FOLDER, hid)), 'result.txt')
         self.soup = common.load_soup_local(review_file)
         self.reviews = []
         for review_bar in self.soup.findAll(
                 'div', class_='reviewSelector'):
-            review = _Review(review_bar)
+            review = _rawReview(review_bar)
             self.reviews.append(review)
+        self.size = len(self.reviews)
         print('[hotel {}] {} reviews found'.format(
-            self.hid, len(self.reviews)))
+            self.hid, self.size))
 
     def __iter__(self):
         return iter(self.reviews)
 
+    def get_size(self):
+        return self.size
 
-class _Review:
+
+class _rawReview:
     def __init__(self, review_soup):
         # review id
         # len('review_') = 7
@@ -58,8 +63,10 @@ class _Review:
 
         # RECOMMEND
         self.rec_bar = self.bubble.find('div', class_='rating-list')
-        self.rec_inline = self.rec_bar.find(
-            'span', class_='recommend-titleInline').getText().strip()
+        self.rec_inline = None if self.rec_bar is None else \
+            self.rec_bar.find('span', class_='recommend-titleInline')
+        if self.rec_inline is not None:
+            self.rec_inline.getText().strip()
 
     def get_title(self):
         return self.bubble.find(
@@ -89,16 +96,17 @@ class _Review:
 
     def get_stayed_date(self):
         # optional
-        rec_date = None if self.rec_bar is None else re.search(
+        rec_date = None if self.rec_inline is None else re.search(
             '(January|February|March|April|'
             'May|June|July|August|September|'
-            'October|November|December) \\d{4}', self.rec_inline)
+            'October|November|December) \\d{4}',
+            self.rec_inline.getText())
         return None if rec_date is None else rec_date.group(0)
 
     def get_stayed_type(self):
         # optional
-        rec_type = None if self.rec_bar is None else re.search(
-            '(?<=travelled ).+', self.rec_inline)
+        rec_type = None if self.rec_inline is None else re.search(
+            '(?<=travelled ).+', self.rec_inline.getText())
         return None if rec_type is None else rec_type.group(0)
 
     def get_sub_ratings(self):
@@ -126,4 +134,4 @@ class _Review:
                 ', responded to this review', ': ')
 
     def get_user(self):
-        return None if self.uid is None else User(self.uid)
+        return None if self.uid is None else rawUser(self.lid, self.uid)

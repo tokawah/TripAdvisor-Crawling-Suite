@@ -1,4 +1,4 @@
-from hotelExtractor import Hotel
+from hotelExtractor import rawHotel
 
 
 def fprint(t, k, v):
@@ -7,7 +7,7 @@ def fprint(t, k, v):
 # initialize a hotel
 hotel_id = input('hotel id: ')
 hotel_id = '299549'
-hotel = Hotel(hotel_id)
+hotel = rawHotel(hotel_id)
 fprint(1, 'HOTEL', '=' * 50)
 fprint(1, 'name', hotel.get_name())
 fprint(1, 'trace', hotel.get_trace())

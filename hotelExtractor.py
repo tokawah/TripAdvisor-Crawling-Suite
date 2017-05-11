@@ -2,12 +2,12 @@
 # -*- coding:utf8 -*-
 from common import HOTEL_FOLDER
 import common
-from reviewExtractor import Reviews, find_rating_value
+from reviewExtractor import rawReviews, find_rating_value
 from os.path import join
 import re
 
 
-class Hotel:
+class rawHotel:
     # style_set = {'quiet', 'all inclusive', 'best value',
     #           'boutique', 'budget', 'business',
     #           'charming', 'classic', 'family-friendly',
@@ -24,13 +24,14 @@ class Hotel:
     #              'restaurant', 'room service', 'spa', 'suites',
     #              'wheelchair access'}
 
-    def __init__(self, hid):
+    def __init__(self, lid, hid):
+        self.lid = lid
         self.hid = hid
-        hotel_file = join(HOTEL_FOLDER, hid + '.txt')
+        hotel_file = join(join(lid, HOTEL_FOLDER), hid + '.txt')
         self.soup = common.load_soup_local(hotel_file)
 
         # HEADING
-        self.heading = self.soup.find('div', id='HEADING_GROUP')
+        # self.heading = self.soup.find('div', id='HEADING_GROUP')
 
         # PHOTOS
         self.photos = self.soup.find('div', id='PHOTOS_TAB')
@@ -48,25 +49,33 @@ class Hotel:
         return traces
 
     def get_name(self):
-        return self.heading.find(
+        return self.soup.find(
             'h1', id='HEADING').getText().strip()
 
     def get_address(self):
-        add_bar = self.heading.find(
-            'span', class_='format_address')
+        add_bar = self.soup.find(
+            'div', class_=['header_address', 'address'])
         return ', '.join(
-            [x.getText().strip().replace(',', '')
-             for x in add_bar.findAll('span')])
+            [x.getText().replace('\n', ' ').replace(',', '').strip()
+             for x in add_bar.findAll('span') if x.has_attr('property')])
 
     def get_rating(self):
         # optional
-        rat_bar = self.heading.find(
-            'div', {'property': 'aggregateRating'})
+        rat_bar = self.soup.find(
+            'div', class_='rs rating')
+        if rat_bar is None:
+            rat_bar = self.soup.find(
+                'div', {'property': 'aggregateRating'})
         return find_rating_value(rat_bar)
 
     def get_ranking(self):
         # optional
-        return self.heading.find(
+        rnk_bar = self.soup.find(
+            'div', class_='popRanking')
+        if rnk_bar is None:
+            rnk_bar = self.soup.find(
+                'span', class_='header_popularity ')
+        return rnk_bar.find(
             'b', class_='rank').getText().strip().replace('#', '')
 
     def get_hotel_tags(self):
@@ -83,10 +92,11 @@ class Hotel:
         # optional
         review_bar = self.soup.find(
             'div', id='taplc_prodp13n_hr_sur_review_keyword_search_0')
-        highlights = []
-        for mention in review_bar.findAll('span', class_='ui_tagcloud'):
-            highlights.append(mention.getText().strip())
-        highlights.remove('All reviews')
+        highlights = [mention.getText().strip() for
+                      mention in review_bar.findAll(
+                'span', class_='ui_tagcloud')]
+        if len(highlights) > 0:
+            highlights.remove('All reviews')
         return highlights
 
     def get_traveller_photos(self):
@@ -151,4 +161,4 @@ class Hotel:
 
     def get_reviews(self):
         # optional
-        return Reviews(self.hid)
+        return rawReviews(self.lid, self.hid)

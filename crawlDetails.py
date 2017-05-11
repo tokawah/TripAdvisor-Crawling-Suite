@@ -1,9 +1,8 @@
 #!/usr/bin/python3
 # -*- coding:utf8 -*-
 import common
-from common import SLEEP_TIME
 from common import HOTEL_FOLDER, REVIEW_FOLDER, TA_ROOT
-from common import REVIEW_PER_PAGE, DETAIL_THREAD_NUM
+from common import REVIEW_PER_PAGE
 from os.path import isfile, join
 import time
 from bs4 import BeautifulSoup
@@ -44,6 +43,7 @@ def find_review_ids(url):
     session.post(url, data=paras, headers=headers)
     response = session.get(url)
     response_soup = BeautifulSoup(response.text, 'lxml')
+    response_soup = common.remove_script_tag(response_soup)
     source = response_soup.prettify()
     num_review = find_num_review(response_soup)
     num_page = calc_max_page(response_soup)
@@ -53,27 +53,36 @@ def find_review_ids(url):
         logger.info('\tno review at all')
         reviews.insert(0, str(num_review))
     else:
-        logger.info('\t{} reviews in {} pages'
-              .format(num_review, num_page))
+        logger.info('\t{} reviews in {} pages'.
+                    format(num_review, num_page))
         url_pattern = '-Reviews-'
         url_pos = url.index(url_pattern) + len(url_pattern)
-        for i in range(0, num_page):
-            time.sleep(SLEEP_TIME)
-            page_url = url if i == 0 else ''.join(
-                [url[:url_pos], 'or', str(i * REVIEW_PER_PAGE),
+        x_cnt = 0
+        while x_cnt < num_page:
+        # for i in range(0, num_page):
+        #     print('page', x_cnt)
+            time.sleep(common.SLEEP_TIME)
+            page_url = url if x_cnt == 0 else ''.join(
+                [url[:url_pos], 'or', str(x_cnt * REVIEW_PER_PAGE),
                  '-', url[url_pos:]])
             response = session.get(page_url + '#REVIEWS')
             items = match_review_ids(response.text)
-            if DETAIL_THREAD_NUM == 1:
-                logger.info('[page {}] {} reviews'
-                      .format(i+1, len(items)))
-            if len(items) < REVIEW_PER_PAGE and i < num_page-1:
-                break
-            elif i == num_page-1 and \
+            if common.DETAIL_THREAD_NUM == 1:
+                logger.info('[page {}] {} reviews'.
+                            format(x_cnt+1, len(items)))
+            # print(len(items))
+            if len(items) < REVIEW_PER_PAGE and x_cnt < num_page-1:
+                # break
+                print('\tretry page {}'.format(x_cnt))
+                continue
+            elif x_cnt == num_page-1 and \
                     len(items) < num_review % REVIEW_PER_PAGE:
-                break
+                print('\tretry page {}'.format(x_cnt))
+                # break
+                continue
             else:
                 reviews.extend(items)
+                x_cnt += 1
         if len(set(reviews)) >= num_review:
             logger.info('\t{} reviews retrieved'.format(len(reviews)))
             reviews.insert(0, str(num_review))
@@ -135,10 +144,14 @@ def start(loc):
                 logger.info('\ttry again later')
                 que.put(cur_pair)
             que.task_done()
+
     que = queue.Queue()
+    hid_pairs = ast.literal_eval(
+        common.read_file(join(loc, 'hids.txt')))
 
     threads = []
-    for j in range(DETAIL_THREAD_NUM):
+    thread_size = min(common.DETAIL_THREAD_NUM, len(hid_pairs))
+    for j in range(thread_size):
         t = threading.Thread(
             target=gather_review_ids, args=(str(j + 1))
         )
@@ -146,8 +159,6 @@ def start(loc):
         threads.append(t)
 
     # push items into the queue
-    hid_pairs = ast.literal_eval(
-        common.read_file(join(loc, 'hids.txt')))
     [que.put({key: hid_pairs[key]}) for key in hid_pairs
      if not review_index_is_valid(loc, key)]
 
@@ -155,7 +166,7 @@ def start(loc):
     que.join()
 
     # stop workers
-    for k in range(DETAIL_THREAD_NUM):
+    for k in range(thread_size):
         que.put(None)
     for t in threads:
         t.join()

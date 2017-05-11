@@ -6,9 +6,9 @@ from os.path import join
 import re
 
 
-class User:
-    def __init__(self, uid):
-        user_file = join(USER_FOLDER, uid + '.txt')
+class rawUser:
+    def __init__(self, hid, uid):
+        user_file = join(join(hid, USER_FOLDER), uid + '.txt')
         self.soup = common.load_soup_local(user_file)
 
         # OVERLAY

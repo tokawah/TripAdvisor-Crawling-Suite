@@ -1,8 +1,7 @@
 #!/usr/bin/python3
 # -*- coding:utf8 -*-
 import common
-from common import REVIEW_FOLDER, USER_FOLDER
-from common import TA_ROOT, SLEEP_TIME, USER_THREAD_NUM
+from common import REVIEW_FOLDER, USER_FOLDER, TA_ROOT
 from os.path import isfile, join
 import re
 import time
@@ -97,7 +96,8 @@ def start(loc):
     que = queue.Queue()
 
     threads = []
-    for j in range(USER_THREAD_NUM):
+    thread_size = min(common.USER_THREAD_NUM, len(uid_list))
+    for j in range(thread_size):
         t = threading.Thread(
             target=gather_profiles, args=(str(j + 1))
         )
@@ -111,7 +111,7 @@ def start(loc):
     que.join()
 
     # stop workers
-    for k in range(USER_THREAD_NUM):
+    for k in range(thread_size):
         que.put(None)
     for t in threads:
         t.join()

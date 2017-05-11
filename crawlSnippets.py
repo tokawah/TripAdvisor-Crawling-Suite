@@ -1,8 +1,7 @@
 #!/usr/bin/python3
 # -*- coding:utf8 -*-
 import common
-from common import SLEEP_TIME
-from common import HOTEL_PER_PAGE, SNIPPET_THREAD_NUM
+from common import HOTEL_PER_PAGE
 from os.path import isfile, join
 import re
 import math
@@ -11,6 +10,7 @@ import queue
 import time
 import ast
 import logging
+import os
 
 logger = logging.getLogger()
 lock = threading.Lock()
@@ -35,28 +35,35 @@ def find_num_hotels(soup_container):
 def start(seed):
     def gather_hotels(title):
         def calc_max_page(soup_container):
-            return math.ceil(find_num_hotels(soup_container) / HOTEL_PER_PAGE)
+            return math.ceil(find_num_hotels(
+                soup_container) / HOTEL_PER_PAGE)
 
-        def find_hotel_ids(soup_container):
-            def get_id_url_pair(div_soup):
-                # len('hotel_') = 6
-                pair_hid = div_soup['id'][6:]
-                pair_snippet = div_soup.select('.metaLocationInfo')[0]
-                pair_url = pair_snippet.select('.listing_title')[0].find('a')['href']
-                return pair_hid, pair_url
+        def find_hotel_ids(url_str):
+            def get_id_url_pair(divs_soup):
+                page_pairs = []
+                for link in divs_soup:
+                    # len('hotel_') = 6
+                    pair_hid = link['id'][6:]
+                    pair_snippet = link.find(
+                        'div', class_='metaLocationInfo')
+                    if pair_snippet is None:
+                        return None
+                    pair_url = pair_snippet.find(
+                        'div', class_='listing_title').find('a')['href']
+                    page_pairs.append({pair_hid: pair_url[1:]})
+                return page_pairs
 
-            page_hotels = []
-            if numPage == 1:
-                hdr = soup_container.find('div', class_='hdrTxt')
-                for div in hdr.findAllPrevious('div', id=re.compile('^hotel_')):
-                    hid, url = get_id_url_pair(div)
-                    page_hotels.append({hid: url[1:]})
-            else:
-                for link in soup_container.find_all(
-                        'div', id=re.compile('^hotel_')):
-                    hid, url = get_id_url_pair(link)
-                    page_hotels.append({hid: url[1:]})
-            return page_hotels
+            soup_container = common.load_soup_online(url_str)
+            hdr = soup_container.find('div', class_='hdrTxt')
+            while True:
+                divs = hdr.findAllPrevious(
+                    'div', id=re.compile('^hotel_')) \
+                    if numPage == 1 and hdr is not None \
+                    else soup_container.findAll(
+                    'div', id=re.compile('^hotel_'))
+                page_hotels = get_id_url_pair(divs)
+                if page_hotels is not None:
+                    return page_hotels
 
         def update_hotel_ids(new_pairs, pair_list):
             for new_pair in new_pairs:
@@ -80,7 +87,7 @@ def start(seed):
                 'displayedSortOrder=popularity'])
             page_url = ''.join([seed, '?', paras])
             logger.info('[page {}] {}'.format(pid + 1, page_url))
-            hotels = find_hotel_ids(common.load_soup_online(page_url))
+            hotels = find_hotel_ids(page_url)
             if len(hotels) < HOTEL_PER_PAGE and pid < numPage - 1:
                 que.put(pid)
             elif pid == numPage - 1 \
@@ -93,7 +100,7 @@ def start(seed):
                     common.write_file(
                         join(locID, 'hids.txt'), str(hidPairs))
 
-            time.sleep(SLEEP_TIME)
+            time.sleep(common.SLEEP_TIME)
             que.task_done()
 
     # seed = input('url: ')
@@ -112,11 +119,17 @@ def start(seed):
     logger.info('{} hotels in the local list'.format(len(hidPairs)))
 
     # collecting hotel ids might take multiple iterations
+    if len(hidPairs) < numHotel:
+        if isfile(join(locID, 'ok')):
+            os.remove(join(locID, 'ok'))
+            print('del ok')
+
     while len(hidPairs) < numHotel:
         que = queue.Queue()
 
         threads = []
-        for j in range(SNIPPET_THREAD_NUM):
+        thread_size = min(common.SNIPPET_THREAD_NUM, numPage)
+        for j in range(thread_size):
             t = threading.Thread(
                 target=gather_hotels, args=(str(j + 1))
             )
@@ -132,7 +145,7 @@ def start(seed):
         que.join()
 
         # stop workers
-        for k in range(SNIPPET_THREAD_NUM):
+        for k in range(thread_size):
             que.put(None)
         for t in threads:
             t.join()

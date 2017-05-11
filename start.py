@@ -1,4 +1,8 @@
 import common
+# from common import SLEEP_TIME
+# from common import SNIPPET_THREAD_NUM, DETAIL_THREAD_NUM
+# from common import REVIEW_THREAD_NUM, USER_THREAD_NUM
+# from common import HOTEL_FOLDER, REVIEW_FOLDER, USER_FOLDER
 import configparser
 import re
 import os
@@ -62,7 +66,8 @@ for url in urls:
         os.makedirs(join(locID, common.REVIEW_FOLDER))
         os.makedirs(join(locID, common.USER_FOLDER))
     crawlSnippets.start(url.strip())
-    crawlDetails.start(locID)
-    crawlReviews.start(locID)
+    if not os.path.isfile(join(locID, 'ok')):
+        crawlDetails.start(locID)
+        crawlReviews.start(locID)
     # crawlUsers.start(locID)
 

@@ -4,15 +4,18 @@ import base64
 from bs4 import BeautifulSoup
 import requests
 import pickle
+import pycld2 as cld2
+import string
 
-SLEEP_TIME = 2
-SNIPPET_THREAD_NUM = 3
-DETAIL_THREAD_NUM = 3
-REVIEW_THREAD_NUM = 3
-USER_THREAD_NUM = 3
+
+SLEEP_TIME = None
+SNIPPET_THREAD_NUM = None
+DETAIL_THREAD_NUM = None
+REVIEW_THREAD_NUM = None
+USER_THREAD_NUM = None
 
 HOTEL_PER_PAGE = 30
-REVIEW_PER_PAGE = 10
+REVIEW_PER_PAGE = 5
 
 HOTEL_FOLDER = 'hotels'
 REVIEW_FOLDER = 'reviews'
@@ -65,3 +68,21 @@ def str_to_b64(s):
 
 def b64_to_str(b):
     return base64.b64decode(b).decode('utf8')
+
+
+def remove_script_tag(soup):
+    [s.extract() for s in soup.findAll('script')]
+    return soup
+
+
+def detect_lang(text):
+    try:
+        is_reliable, text_bytes_found, details = cld2.detect(text)
+    except:
+        text = ''.join(x for x in text if x in string.printable)
+        is_reliable, text_bytes_found, details = cld2.detect(text)
+    # print('detected: %s' % detectedLangName)
+    # print('reliable: %s' % (isReliable != 0))
+    # print('textBytes: %s' % textBytesFound)
+    # print('details: %s' % str(details))
+    return details[0][1]
