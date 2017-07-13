@@ -10,7 +10,7 @@ import queue
 import threading
 import ast
 import logging
-from tadb import tadb
+from tadb import taDB
 
 logger = logging.getLogger()
 lock = threading.Lock()
@@ -32,13 +32,13 @@ def save_reviews(web_data):
         any_rids.append(any_rid)
         records.append((any_rid, any_html, any_uid))
     with lock:
-        with tadb(common.TA_DB) as db:
+        with taDB(common.TA_DB) as db:
             db.insert_many_reviews(records)
     return any_rids
 
 
 def review_result_is_valid(hotel_id):
-    with tadb(common.TA_DB) as db:
+    with taDB(common.TA_DB) as db:
         record = db.read_a_hotel(hotel_id)
     if record is None:
         return False
@@ -51,7 +51,7 @@ def review_result_is_valid(hotel_id):
     if rno < len(rids):
         return False
 
-    with tadb(common.TA_DB) as db:
+    with taDB(common.TA_DB) as db:
         for rid in rids:
             rrecord = db.read_a_review(rid)
             if rrecord is None:
@@ -78,12 +78,12 @@ def start(gid):
                  'reviews=' + rid])
 
         while True:
-            logger.info('[worker {}] running'.format(title))
+            # logger.info('[worker {}] running'.format(title))
             hotel_id = que.get()
             if hotel_id is None:
                 logger.info('[worker {}] shutting down'.format(title))
                 break
-            with tadb(common.TA_DB) as db:
+            with taDB(common.TA_DB) as db:
                 record = db.read_a_hotel(hotel_id)
             if record is None:
                 continue
@@ -120,7 +120,7 @@ def start(gid):
             if not diff_flag:
                 if diff_set:
                     with lock:
-                        with tadb(common.TA_DB) as db:
+                        with taDB(common.TA_DB) as db:
                             db.update_review_list_in_hotel(
                                 hotel_id, len(new_rids), str(new_rids))
                     logger.info('\t[hotel {}] review indexes updated'
@@ -133,7 +133,8 @@ def start(gid):
 
     que = queue.Queue()
 
-    hid_pairs = tadb.get_hotel_url_pairs(gid)
+    with taDB(common.TA_DB) as iodb:
+        hid_pairs = iodb.get_hotel_url_pairs(gid)
 
     threads = []
     thread_size = common.REVIEW_THREAD_NUM

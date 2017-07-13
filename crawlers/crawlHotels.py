@@ -12,7 +12,7 @@ import queue
 import requests
 import ast
 import logging
-from tadb import tadb
+from tadb import taDB
 
 logger = logging.getLogger()
 lock = threading.Lock()
@@ -94,7 +94,7 @@ def find_review_ids(hid, url):
 
 
 def review_index_is_valid(hid):
-    with tadb(common.TA_DB) as db:
+    with taDB(common.TA_DB) as db:
         record = db.read_a_hotel(hid)
     if record is not None:
         rno = record[3]
@@ -120,7 +120,7 @@ def review_index_is_valid(hid):
 def start(gid):
     def gather_review_ids(title):
         while True:
-            logger.info('[worker {}] running'.format(title))
+            # logger.info('[worker {}] running'.format(title))
             cur_pair = que.get()
             if cur_pair is None:
                 logger.info('[worker {}] shutting down'.format(title))
@@ -132,7 +132,7 @@ def start(gid):
             if rid_list is not None:
                 record = [hid, html, gid, rno, str(rid_list)]
                 with lock:
-                    with tadb(common.TA_DB) as idb:
+                    with taDB(common.TA_DB) as idb:
                         idb.insert_a_hotel(record)
             else:
                 logger.info('\ttry again later')
@@ -141,7 +141,8 @@ def start(gid):
 
     que = queue.Queue()
 
-    hid_pairs = tadb.get_hotel_url_pairs(gid)
+    with taDB(common.TA_DB) as iodb:
+        hid_pairs = iodb.get_hotel_url_pairs(gid)
 
     threads = []
     thread_size = common.DETAIL_THREAD_NUM

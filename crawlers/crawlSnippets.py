@@ -8,7 +8,7 @@ import threading
 import queue
 import time
 import logging
-from tadb import tadb
+from tadb import taDB
 
 logger = logging.getLogger()
 lock = threading.Lock()
@@ -63,7 +63,7 @@ def start(gid, init_url):
                     pair_list[pair_key] = pair_value
 
         while True:
-            logger.info('[worker {}] running'.format(title))
+            # logger.info('[worker {}] running'.format(title))
             pid = que.get()
             if pid is None:
                 logger.info('[worker {}] shutting down'.format(title))
@@ -91,7 +91,7 @@ def start(gid, init_url):
                 with lock:
                     update_hotel_ids(hotels, hid_pairs)
                     logger.info('\t#{}, totaling {}'.format(pid, len(hid_pairs)))
-                    with tadb(common.TA_DB) as db:
+                    with taDB(common.TA_DB) as db:
                         record = [gid, str(hid_pairs)]
                         db.insert_a_location(record)
 
@@ -105,7 +105,8 @@ def start(gid, init_url):
     num_hotel = find_num_hotels(soup)
     logger.info('{} hotels in {} pages'.format(num_hotel, num_page))
 
-    hid_pairs = tadb.get_hotel_url_pairs(gid)
+    with taDB(common.TA_DB) as iodb:
+        hid_pairs = iodb.get_hotel_url_pairs(gid)
     logger.info('{} hotels in local cache'.format(len(hid_pairs)))
 
     # collecting hotel ids might take multiple iterations

@@ -7,8 +7,9 @@ from extractors.reviewExtractor import rawReview
 from extractors.userExtractor import rawUser
 
 
-class tadb():
+class taDB():
     def __init__(self, db_name):
+        self.db_name = db_name
         self._conn = sqlite3.connect(db_name)
         self._c = self._conn.cursor()
 
@@ -28,6 +29,12 @@ class tadb():
         return self._c.execute('''
               SELECT hid_str FROM locations 
               WHERE gid = ?''', (gid, )).fetchone()
+
+    def get_hotel_url_pairs(self, gid):
+        db_hid_str = self.read_a_location(gid)
+        if db_hid_str is not None:
+            return ast.literal_eval(db_hid_str[0])
+        return {}
 
     def insert_a_hotel(self, record):
         self._c.execute('''
@@ -103,13 +110,13 @@ class tadb():
                   highlights = ?
                   WHERE hid = ?''', records)
             self._conn.commit()
-            print('\tinserted.')
+            # print('\tinserted.')
 
         records = []
         for result in self._c.execute('''
               SELECT hid FROM hotels''').fetchall():
             hid = result[0]
-            print('[hotel {}]'.format(hid))
+            print('extracting hotel {}...'.format(hid))
             _result = self._c.execute('''
             SELECT html FROM hotels 
             WHERE hid = ?''', (hid, )).fetchone()
@@ -132,6 +139,7 @@ class tadb():
                 records = []
         # finalizing
         batch_insert()
+        print('hotel extraction done.')
 
     def extract_review_info(self):
         def batch_insert():
@@ -143,13 +151,13 @@ class tadb():
                   subratings = ?, thanks = ?
                   WHERE rid = ?''', records)
             self._conn.commit()
-            print('\tinserted.')
+            # print('\tinserted.')
 
         records = []
         for result in self._c.execute('''
               SELECT rid FROM reviews''').fetchall():
             rid = result[0]
-            print('[review {}]'.format(rid))
+            print('extracting review {}...'.format(rid))
             _result = self._c.execute('''
             SELECT html FROM reviews 
             WHERE rid = ?''', (rid, )).fetchone()
@@ -169,6 +177,7 @@ class tadb():
                 records = []
         # finalizing
         batch_insert()
+        print('review extraction done.')
 
     def extract_user_info(self):
         def batch_insert():
@@ -181,7 +190,7 @@ class tadb():
                 upoint = ?, ulevel = ?
                 WHERE uid = ?''', records)
             self._conn.commit()
-            print('\tinserted.')
+            # print('\tinserted.')
 
         records = []
         cnt = 0
@@ -196,9 +205,10 @@ class tadb():
             if html is None:
                 continue
 
+            print('extracting user {}...'.format(uid))
             cnt += 1
-            if cnt % 1000 == 0:
-                print('{} users'.format(cnt))
+            # if cnt % 1000 == 0:
+            #     print('{} users'.format(cnt))
 
             _ = rawUser(html)
             record = (_.get_name(),
@@ -217,6 +227,7 @@ class tadb():
                 records = []
         # finalizing
         batch_insert()
+        print('user extraction done.')
 
     def create_tables(self):
         # create crawl table
@@ -256,12 +267,3 @@ class tadb():
                     is_complete INTEGER DEFAULT 0,
                     UNIQUE(uid))''')
         self._conn.commit()
-
-
-@staticmethod
-def get_hotel_url_pairs(gid):
-    with tadb(common.TA_DB) as db:
-        db_hid_str = db.read_a_location(gid)
-    if db_hid_str is not None:
-        return ast.literal_eval(db_hid_str[0])
-    return {}
