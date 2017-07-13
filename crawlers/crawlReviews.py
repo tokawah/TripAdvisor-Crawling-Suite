@@ -1,52 +1,75 @@
 #!/usr/bin/python3
 # -*- coding:utf8 -*-
 import common
-from common import REVIEW_FOLDER, TA_ROOT
-from os.path import isfile, join
+from common import TA_ROOT
 import requests
 import time
 import math
 import re
-import os
 import queue
 import threading
 import ast
 import logging
+from tadb import tadb
 
 logger = logging.getLogger()
-CHUNK_SIZE = 500
+lock = threading.Lock()
 
 
-def find_reviews(web_data):
-    return re.findall(
-        '(?<=reviewlistingid=\")\d+(?=\")',
-        web_data, re.IGNORECASE)
+def save_reviews(web_data):
+    web_soup = common.load_soup_string(web_data)
+    review_soups = web_soup.find_all(
+        'div', id=re.compile('review_\d+'))
+    records = []
+    any_rids =[]
+    for x in review_soups:
+        # len('review_') = 7
+        any_rid = x['id'][7:]
+        any_html = x.prettify()
+        any_uid = re.search('[A-Z0-9]{32}', any_html)
+        if any_uid is not None:
+            any_uid = any_uid.group(0)
+        any_rids.append(any_rid)
+        records.append((any_rid, any_html, any_uid))
+    with lock:
+        with tadb(common.TA_DB) as db:
+            db.insert_many_reviews(records)
+    return any_rids
 
 
-def review_result_is_valid(loc, hotel_id):
-    index_dir = join(loc, join(REVIEW_FOLDER, hotel_id))
-    index_file = join(index_dir, 'index.txt')
-    review_file = join(index_dir, 'result.txt')
-    rids = common.read_binary(index_file)
-    if int(rids[0]) > 0:
-        if isfile(review_file):
-            del rids[0]
-            new_rids = find_reviews(common.read_file(review_file))
-            if set(rids) != set(new_rids):
-                logger.info('[hotel {}] FAILED: corrupted'.format(hotel_id))
-                os.remove(review_file)
-                return False
-            else:
-                logger.info('[hotel {}] PASSED: verified'.format(hotel_id))
-                return True
-        else:
-            return False
-    else:
+def review_result_is_valid(hotel_id):
+    with tadb(common.TA_DB) as db:
+        record = db.read_a_hotel(hotel_id)
+    if record is None:
+        return False
+    rno = record[3]
+    if int(rno) == 0:
         logger.info('[hotel {}] PASSED: no reviews'.format(hotel_id))
         return True
+    rid_str = record[4]
+    rids = ast.literal_eval(rid_str)
+    if rno < len(rids):
+        return False
+
+    with tadb(common.TA_DB) as db:
+        for rid in rids:
+            rrecord = db.read_a_review(rid)
+            if rrecord is None:
+                return False
+            html = rrecord[1]
+            if html is None:
+                logger.info('[hotel {}] FAILED: HTML is absent'.format(hotel_id))
+                return False
+            rec_soup = common.load_soup_string(html)
+            if rec_soup.find('div', id=''.join(['review_', rid])) is None:
+                print(html)
+                logger.info('[hotel {}] FAILED: corrupted HTML'.format(hotel_id))
+                return False
+    logger.info('[hotel {}] PASSED: verified'.format(hotel_id))
+    return True
 
 
-def start(loc):
+def start(gid):
     def gather_reviews(title):
         def gen_review_url(rid):
             return TA_ROOT + 'OverlayWidgetAjax?' + '&'.join(
@@ -56,58 +79,64 @@ def start(loc):
 
         while True:
             logger.info('[worker {}] running'.format(title))
-            hid = que.get()
-            if hid is None:
+            hotel_id = que.get()
+            if hotel_id is None:
                 logger.info('[worker {}] shutting down'.format(title))
                 break
-            index_dir = join(loc, join(REVIEW_FOLDER, hid))
-            index_file = join(index_dir, 'index.txt')
-            review_file = join(index_dir, 'result.txt')
-            rids = common.read_binary(index_file)
-            del rids[0]
+            with tadb(common.TA_DB) as db:
+                record = db.read_a_hotel(hotel_id)
+            if record is None:
+                continue
+            rid_str = record[4]
+            rids = ast.literal_eval(rid_str)
             new_rids = []
-            result = []
-            slice_num = math.ceil(len(rids) / CHUNK_SIZE)
+            slice_num = math.ceil(
+                len(rids) / common.REVIEW_CHUNK_SIZE)
             for slicePos in range(slice_num):
                 time.sleep(common.SLEEP_TIME)
-                spos = slicePos * CHUNK_SIZE
-                epos = (slicePos + 1) * CHUNK_SIZE \
+                spos = slicePos * common.REVIEW_CHUNK_SIZE
+                epos = (slicePos + 1) * common.REVIEW_CHUNK_SIZE \
                     if slicePos + 1 < slice_num else len(rids)
                 id_string = ','.join(rids[spos: epos])
                 logger.info('\t[hotel {}] from {} to {}'
-                      .format(hid, spos + 1, epos))
+                            .format(hotel_id, spos + 1, epos))
                 url = gen_review_url(id_string)
                 web_data = requests.get(url)
                 web_text = web_data.text
-                result.append(web_text)
-                new_rids.extend(find_reviews(web_text))
+                new_rids.extend(save_reviews(web_text))
             diff_flag = False
             diff_set = set(rids).difference(set(new_rids))
             for diff in diff_set:
+                print('found diff')
                 url = gen_review_url(diff)
                 web_data = requests.get(url)
-                if len(find_reviews(web_data.text)) > 0:
+                blank = re.findall(
+                    '(?<=id=\")review_\d+(?=\")',
+                    web_data.text, re.IGNORECASE)
+                if len(blank) > 0:
                     diff_flag = True
                     logger.info('{} is not empty'.format(diff))
                     break
             if not diff_flag:
                 if diff_set:
-                    new_rids.insert(0, len(new_rids))
-                    common.write_binary(index_file, new_rids)
-                    logger.info('\t[hotel {}] review indexes updated'.format(hid))
-                common.write_file(review_file, '\r\n'.join(result))
+                    with lock:
+                        with tadb(common.TA_DB) as db:
+                            db.update_review_list_in_hotel(
+                                hotel_id, len(new_rids), str(new_rids))
+                    logger.info('\t[hotel {}] review indexes updated'
+                                .format(hotel_id))
             else:
                 logger.info('\ttry again later')
                 logger.info('\t{}'.format(diff_set))
-                que.put(hid)
+                que.put(hotel_id)
             que.task_done()
 
     que = queue.Queue()
-    hid_pairs = ast.literal_eval(
-        common.read_file(join(loc, 'hids.txt')))
+
+    hid_pairs = tadb.get_hotel_url_pairs(gid)
 
     threads = []
-    thread_size = min(common.REVIEW_THREAD_NUM, len(hid_pairs))
+    thread_size = common.REVIEW_THREAD_NUM
     for j in range(thread_size):
         t = threading.Thread(
             target=gather_reviews, args=(str(j + 1))
@@ -115,20 +144,14 @@ def start(loc):
         t.start()
         threads.append(t)
 
-    # push items into the queue
-    # hid_pairs = ast.literal_eval(common.read_file('hids.txt'))
     [que.put(key) for key in hid_pairs
-     if not review_result_is_valid(loc, key)]
+     if not review_result_is_valid(key)]
 
-    # block until all tasks are done
     que.join()
 
-    # stop workers
     for k in range(thread_size):
         que.put(None)
     for t in threads:
         t.join()
 
     logger.info('all reviews are ready')
-    common.write_file(join(loc, 'ok'), '')
-    print('write ok')

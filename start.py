@@ -1,23 +1,22 @@
-import common
-# from common import SLEEP_TIME
-# from common import SNIPPET_THREAD_NUM, DETAIL_THREAD_NUM
-# from common import REVIEW_THREAD_NUM, USER_THREAD_NUM
-# from common import HOTEL_FOLDER, REVIEW_FOLDER, USER_FOLDER
 import configparser
-import re
-import os
-from os.path import join
 import logging
+import re
+import threading
 import time
-import crawlSnippets
-import crawlDetails
-import crawlReviews
-import crawlUsers
+from os.path import isfile
+
+import common
+from tadb import tadb
+
+lock = threading.Lock()
 
 
 def init_logger():
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
+
+    # disable requests logging
+    logging.getLogger('requests').setLevel(logging.WARNING)
 
     # console handler
     handler = logging.StreamHandler()
@@ -56,18 +55,22 @@ def load_config():
     logging.info('{} locations found'.format(len(url_list)))
     return url_list
 
+
+if not isfile(common.TA_DB):
+    with tadb(common.TA_DB) as db:
+        db.create_tables()
+
 init_logger()
 urls = load_config()
 for url in urls:
-    locID = re.sub('\D', '', url)
-    if not os.path.exists(locID):
-        os.makedirs(locID)
-        os.makedirs(join(locID, common.HOTEL_FOLDER))
-        os.makedirs(join(locID, common.REVIEW_FOLDER))
-        os.makedirs(join(locID, common.USER_FOLDER))
-    crawlSnippets.start(url.strip())
-    if not os.path.isfile(join(locID, 'ok')):
-        crawlDetails.start(locID)
-        crawlReviews.start(locID)
-    # crawlUsers.start(locID)
+    gid = re.sub('\D', '', url)
+    # crawlSnippets.start(gid, url.strip())
+    # crawlHotels.start(gid)
+    # crawlReviews.start(gid)
+    # crawlUsers.start()
+
+with tadb(common.TA_DB) as db:
+    # db.extract_hotel_info()
+    # db.extract_review_info()
+    db.extract_user_info()
 

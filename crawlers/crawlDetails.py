@@ -1,21 +1,21 @@
 #!/usr/bin/python3
 # -*- coding:utf8 -*-
 import common
-from common import TA_ROOT
+from common import HOTEL_FOLDER, REVIEW_FOLDER, TA_ROOT
 from common import REVIEW_PER_PAGE
+from os.path import isfile, join
 import time
 from bs4 import BeautifulSoup
 import math
+import os
 import re
 import threading
 import queue
 import requests
 import ast
 import logging
-from tadb import tadb
 
 logger = logging.getLogger()
-lock = threading.Lock()
 
 
 def find_review_ids(hid, url):
@@ -86,38 +86,42 @@ def find_review_ids(hid, url):
         if len(reviews) >= num_review:
             logger.info('\t[hotel {}] {} reviews retrieved'.
                         format(hid, len(reviews)))
+            reviews.insert(0, str(num_review))
         else:
             reviews = None
             logger.info('\t\tcorrupted')
     session.close()
-    return source, num_review, reviews
+    return source, reviews
 
 
-def review_index_is_valid(hid):
-    with tadb(common.TA_DB) as db:
-        record = db.read_a_hotel(hid)
-    if record is not None:
-        rno = record[3]
-        rid_str = record[4]
-
-        rids = ast.literal_eval(rid_str)
-
-        is_having = len(rids)
-        if rno > is_having or is_having != len(set(rids)):
-            print('should_have {}, is_having {}'.format(rno, is_having))
-            logger.info('[hotel {}] FAILED: corrupted'.format(hid))
+def review_index_is_valid(loc, hotel_id):
+    rid_file = join(loc, join(
+        join(REVIEW_FOLDER, hotel_id), 'index.txt'))
+    detail_file = join(loc, join(HOTEL_FOLDER, hotel_id + '.txt'))
+    if isfile(rid_file) and isfile(detail_file):
+        try:
+            rids = common.read_binary(rid_file)
+            should_have = int(rids[0])
+            del rids[0]
+            is_having = len(rids)
+            if should_have > is_having or is_having != len(set(rids)):
+                logger.info('[hotel {}] FAILED: corrupted'.format(hotel_id))
+                # delete the corrupted file
+                os.remove(rid_file)
+                return False
+            elif should_have < is_having:
+                logger.info('[hotel {}] PASSED: extra reviews'.format(hotel_id))
+                return True
+            else:
+                logger.info('[hotel {}] PASSED: verified'.format(hotel_id))
+                return True
+        except IndexError:
             return False
-        elif rno < is_having:
-            logger.info('[hotel {}] PASSED: extra reviews'.format(hid))
-            return True
-        else:
-            logger.info('[hotel {}] PASSED: verified'.format(hid))
-            return True
     else:
         return False
 
 
-def start(gid):
+def start(loc):
     def gather_review_ids(title):
         while True:
             logger.info('[worker {}] running'.format(title))
@@ -128,23 +132,26 @@ def start(gid):
             hid, hurl = next(iter(cur_pair.items()))
             hurl = TA_ROOT + hurl
             logger.info('[hotel {}] {}'.format(hid, hurl))
-            html, rno, rid_list = find_review_ids(hid, hurl)
+            page_source, rid_list = find_review_ids(hid, hurl)
+            detail_file = join(loc, join(HOTEL_FOLDER, hid + '.txt'))
+            common.write_file(detail_file, page_source)
             if rid_list is not None:
-                record = [hid, html, gid, rno, str(rid_list)]
-                with lock:
-                    with tadb(common.TA_DB) as idb:
-                        idb.insert_a_hotel(record)
+                index_folder = join(loc, join(REVIEW_FOLDER, hid))
+                if not os.path.exists(index_folder):
+                    os.makedirs(index_folder)
+                index_file = join(index_folder, 'index.txt')
+                common.write_binary(index_file, rid_list)
             else:
                 logger.info('\ttry again later')
                 que.put(cur_pair)
             que.task_done()
 
     que = queue.Queue()
-
-    hid_pairs = tadb.get_hotel_url_pairs(gid)
+    hid_pairs = ast.literal_eval(
+        common.read_file(join(loc, 'hids.txt')))
 
     threads = []
-    thread_size = common.DETAIL_THREAD_NUM
+    thread_size = min(common.DETAIL_THREAD_NUM, len(hid_pairs))
     for j in range(thread_size):
         t = threading.Thread(
             target=gather_review_ids, args=(str(j + 1))
@@ -152,11 +159,14 @@ def start(gid):
         t.start()
         threads.append(t)
 
+    # push items into the queue
     [que.put({key: hid_pairs[key]}) for key in hid_pairs
-     if not review_index_is_valid(key)]
+     if not review_index_is_valid(loc, key)]
 
+    # block until all tasks are done
     que.join()
 
+    # stop workers
     for k in range(thread_size):
         que.put(None)
     for t in threads:

@@ -1,102 +1,94 @@
 #!/usr/bin/python3
 # -*- coding:utf8 -*-
 import common
-from common import REVIEW_FOLDER, USER_FOLDER, TA_ROOT
-from os.path import isfile, join
+from common import TA_ROOT
 import re
 import time
 import threading
 import queue
-import ast
 import logging
+from tadb import tadb
 
 logger = logging.getLogger()
+lock = threading.Lock()
 
 
-def profile_is_valid(soup):
-    return soup.find('div', id='MODULES_MEMBER_CENTER') is not None
-
-
-def user_index_is_valid(uid):
-    uid_file = join(USER_FOLDER, uid + '.txt')
-    if isfile(uid_file):
-        soup = common.load_soup_local(uid_file)
-        if profile_is_valid(soup):
-            logger.info('[user {}] PASSED: verified'.format(uid))
-            return True
-        else:
+def start():
+    def user_is_valid(uid):
+        with tadb(common.TA_DB) as db:
+            user_record = db.read_a_user(uid)
+        if user_record is None:
+            return False
+        html = user_record[0]
+        if html is None:
+            return False
+        soup = common.load_soup_string(html)
+        if soup.find('div', id='MODULES_MEMBER_CENTER') is None:
             logger.info('[user {}] FAILED: corrupted'.format(uid))
             return False
-    else:
-        return False
-
-
-def start(loc):
-    def gen_uid_index():
-        logger.info('retrieving user ids...\r\nthis could take several minutes.')
-        hid_list = ast.literal_eval(
-            common.read_file(join(loc, 'hids.txt'))).keys()
-        uids = []
-        for hidItem in hid_list:
-            review_file = join(loc, join(
-                join(REVIEW_FOLDER, hidItem), 'result.txt'))
-            if isfile(review_file):
-                web_data = common.read_file(review_file)
-                m = re.findall('(?<=profile_)[0-9A-Z]{32}', web_data)
-                uids.extend(m)
-            else:
-                pass
-        unique_uids = list(set(uids))
-        logger.info('{} out of {} unique users'
-              .format(len(unique_uids), len(uids)))
-        common.write_binary(join(loc, 'uids.txt'), unique_uids)
-        return unique_uids
+        else:
+            logger.info('[user {}] PASSED: verified'.format(uid))
+            return True
 
     def gather_profiles(title):
         while True:
             logger.info('[worker {}] running'.format(title))
             uid = que.get()
             if uid is None:
-                logger.info('[worker {}] shutting down'.format(title))
+                logger.info('[worker {}] shutting down'
+                            .format(title))
                 break
-                logger.info('user {}'.format(uid))
+            logger.info('[user {}]'.format(uid))
             url = TA_ROOT + 'MemberOverlay?uid=' + uid
             simple_soup = common.load_soup_online(url).find(
                 'div', class_='memberOverlay')
-            nav_soup = simple_soup.find('div', class_='baseNav')
-            profile_url = None if nav_soup is None else \
-                [x['href'] for x in nav_soup.findAll(
-                    'a') if 'profile' in x.getText()][0]
+            profile_url = re.search(
+                '(?<=")/members/.+(?=")', str(simple_soup))
+            if profile_url is None:
+                profile_url = re.search(
+                    '(?<=")/MemberProfile-a_uid.[A-Z0-9]+(?=")',
+                    str(simple_soup))
+
             result = []
             if profile_url is not None:
-                profile_url = TA_ROOT + profile_url.strip()
+                profile_url = TA_ROOT + profile_url.group(0).strip()
                 result.append(simple_soup.prettify())
                 detail_soup = common.load_soup_online(profile_url)
-                detail_soup = detail_soup.find(
+                member_soup = detail_soup.find(
                     'div', id='MODULES_MEMBER_CENTER')
-                if detail_soup is not None:
-                    result.append(detail_soup.prettify())
-                    profile_file = join(loc, join(USER_FOLDER, uid + '.txt'))
-                    common.write_file(profile_file, '\r\n'.join(result))
+                if member_soup is not None:
+                    result.append(member_soup.prettify())
+                    record = [uid, '\r\n'.join(result)]
+                    with lock:
+                        with tadb(common.TA_DB) as db:
+                            db.insert_a_user(record)
                 else:
-                    logger.info('\ttry again later')
-                    que.put(uid)
+                    if '404' in detail_soup.find('title').string:
+                        with lock:
+                            with tadb(common.TA_DB) as db:
+                                db.remove_user_id_in_review(uid)
+                                logger.info('\tuser id removed')
+                    else:
+                        logger.info('\tfailed to fetch full profile')
+                        que.put(uid)
             else:
-                logger.info('\ttry again later')
+                logger.info('\tno profile url')
                 que.put(uid)
 
-            time.sleep(SLEEP_TIME)
+            time.sleep(common.SLEEP_TIME)
             que.task_done()
 
-    uid_file = join(loc, 'uids.txt')
-    uid_list = common.read_binary(uid_file) \
-        if isfile(uid_file) else gen_uid_index()
-    logger.info('{} users found'.format(len(uid_list)))
+    # extract unique user ids from reviews
+    logger.info('retrieving users...')
+    with tadb(common.TA_DB) as iodb:
+        iodb.generate_unique_users()
+        uids = iodb.read_all_user_ids()
+    logger.info('{} users found'.format(len(uids)))
 
     que = queue.Queue()
 
     threads = []
-    thread_size = min(common.USER_THREAD_NUM, len(uid_list))
+    thread_size = common.USER_THREAD_NUM
     for j in range(thread_size):
         t = threading.Thread(
             target=gather_profiles, args=(str(j + 1))
@@ -104,13 +96,11 @@ def start(loc):
         t.start()
         threads.append(t)
 
-    # push items into the queue
-    [que.put(x) for x in uid_list if not user_index_is_valid(x)]
+    [que.put(x) for x in uids
+     if not user_is_valid(x)]
 
-    # block until all tasks are done
     que.join()
 
-    # stop workers
     for k in range(thread_size):
         que.put(None)
     for t in threads:

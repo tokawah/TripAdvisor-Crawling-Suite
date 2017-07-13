@@ -16,12 +16,15 @@ USER_THREAD_NUM = None
 
 HOTEL_PER_PAGE = 30
 REVIEW_PER_PAGE = 5
-
-HOTEL_FOLDER = 'hotels'
-REVIEW_FOLDER = 'reviews'
-USER_FOLDER = 'users'
+REVIEW_CHUNK_SIZE = 300
+EXTRACT_CHUNK_SIZE = 500
 
 TA_ROOT = 'https://www.tripadvisor.com.au/'
+TA_DB = 'ta.db'
+
+
+def load_soup_string(soup_str):
+    return BeautifulSoup(soup_str, 'lxml')
 
 
 def load_soup_local(fn):
@@ -71,7 +74,7 @@ def b64_to_str(b):
 
 
 def remove_script_tag(soup):
-    [s.extract() for s in soup.findAll('script')]
+    [s.decompose() for s in soup.findAll('script')]
     return soup
 
 
