@@ -12,7 +12,7 @@ def find_rating_value(value_soup):
     value_bar = value_soup.find(
         ['span', 'div'], class_='ui_bubble_rating')
     if value_bar is None:
-        return None
+        return -1
     else:
         return calc_rating_value(value_bar['class'][1])
 
@@ -54,7 +54,7 @@ class rawReview:
     def get_title(self):
         # 'quote' may have been deprecated
         return self._bubble.find(
-            'div', class_=['quote', 'noQuotes']).getText().strip()[1:-1]
+            'div', class_=['quote', 'noQuotes']).getText().strip()
 
     def get_rating(self):
         return find_rating_value(self._inline)
@@ -73,12 +73,11 @@ class rawReview:
     def get_tips(self):
         # optional
         tip_bar = self._bubble.find('div', class_='inlineRoomTip')
+        tips = None
         if tip_bar is not None:
             tip_bar.find('div', class_='no_cpu').decompose()
             # len('Room Tip: ') = 10
             tips = tip_bar.getText().strip()[10:]
-        else:
-            tips = None
         return tips
 
     def get_stayed_date(self):
@@ -118,15 +117,19 @@ class rawReview:
                     'div', class_='recommend-description').getText().strip()
                 sub_value = find_rating_value(sub)
                 sub_ratings.append({sub_key: sub_value})
-            return sub_ratings
+            if len(sub_ratings) > 0:
+                return sub_ratings
         return None
 
     def get_thanks(self):
         thank_bar = self._bubble.find(
-            'span', class_='helpful_text').find(
-            'span', class_='numHlpIn')
-        return 0 if thank_bar is None \
-            else thank_bar.getText().strip()
+            # 'span', class_='helpful_text').find(
+            'span', class_='numHelp')
+        if thank_bar is not None:
+            thank_val = thank_bar.getText().strip()
+            if len(thank_val) > 0:
+                return thank_val
+        return 0
 
     def get_response(self):
         rsp_bar = self._bubble.find('div', class_='mgrRspnInline')

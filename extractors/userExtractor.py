@@ -28,12 +28,15 @@ class rawUser:
 
     def get_descriptions(self):
         # optional
-        des_bar = self.overlay.find(
+        desc_bar = self.overlay.find(
             'ul', class_=['memberdescription',
                           'memberdescriptionReviewEnhancements'])
-        if des_bar is not None:
-            return [item.getText().strip()
-                    for item in des_bar.findAll('li')]
+        desc_list = []
+        if desc_bar is not None:
+            desc_list = [item.getText().strip()
+                         for item in desc_bar.findAll('li')]
+            if len(desc_list) > 0:
+                return desc_list
         return None
 
     def get_basic_stats(self):
@@ -45,7 +48,7 @@ class rawUser:
             item_value = re.sub('\D', '', item_text).strip()
             item_key = re.sub('\d', '', item_text).strip()
             counts[item_key] = item_value
-        return counts
+        return counts if len(counts.items()) > 0 else None
 
     def get_review_distribution(self):
         # optional
@@ -59,7 +62,7 @@ class rawUser:
                 item_key = re.sub('[^a-zA-Z]', '', item.getText())
                 item_value = re.sub('\D', '', item.getText())
                 dist[item_key] = item_value
-            return dist
+            return dist if len(dist.items()) > 0 else None
         return None
 
     def get_registration_year(self):
@@ -71,7 +74,7 @@ class rawUser:
         reg_year.extend(
             [x.getText().strip()
              for x in reg_bar.findAll('p')])
-        return reg_year
+        return reg_year if len(reg_year) > 0 else None
 
     def get_hometown(self):
         return self.left_profile.find(
@@ -89,7 +92,7 @@ class rawUser:
                 item_value = link[0:link.index(' ')]
                 item_key = link[link.index(' ') + 1:]
                 stats[item_key] = item_value
-            return stats
+            return stats if len(stats.items()) > 0 else None
         return None
 
     def get_tags(self):
@@ -99,19 +102,22 @@ class rawUser:
             tags = []
             for tag in tag_bar.findAll('div', class_='unclickable'):
                 tags.append(tag.getText().strip())
-            return tags
+            if len(tags) > 0:
+                return tags
         return None
 
     def get_total_point(self):
-        return self.right_con.find(
+        point_val = self.right_con.find(
             'div', class_='modules-membercenter-total-points ').find(
-            'div', class_='points').getText().strip().replace(',', '')
+            'div', class_='points')
+        return -1 if point_val is None else \
+            re.sub('\D', '', point_val.getText().strip())
 
     def get_level(self):
         # optional
-        level = self.right_con.find(
+        level_val = self.right_con.find(
             'div', class_='modules-membercenter-level ').find('span')
-        return -1 if level is None else level.getText().strip()
+        return -1 if level_val is None else level_val.getText().strip()
 
     def get_badges(self):
         # optional
@@ -124,4 +130,4 @@ class rawUser:
             if badge.find('a') is None:
                 badges.append(badge.find(
                     'div', class_='text').getText().strip())
-        return badges
+        return badges if len(badges) > 0 else None

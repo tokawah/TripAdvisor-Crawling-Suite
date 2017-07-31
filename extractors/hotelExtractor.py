@@ -39,7 +39,7 @@ class rawHotel:
         for loc in nav_bar.findAll(
                 'span', {'itemprop': 'title'}):
             traces.append(loc.getText().strip())
-        return traces
+        return traces if len(traces) > 0 else None
 
     def get_name(self):
         return self._json['name']
