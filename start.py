@@ -73,15 +73,15 @@ if __name__ == "__main__":
             logging.info('database {} created.'.format(fn))
 
     urls = load_config()
-    for url in urls:
-        gid = re.sub('\D', '', url)
-        crawlSnippets.start(gid, url.strip())
-        crawlHotels.start(gid)
-        crawlReviews.start(gid)
-        crawlUsers.start()
+    # for url in urls:
+    #     gid = re.sub('\D', '', url)
+    #     crawlSnippets.start(gid, url.strip())
+    #     crawlHotels.start(gid)
+    #     crawlReviews.start(gid)
+    # crawlUsers.start()
 
     # with taDB(common.TA_DB) as db:
-        # db.extract_hotel_info()
-        # db.extract_review_info()
-        # db.extract_user_info()
-
+    #     db.extract_hotel_info()
+    #     db.extract_review_info()
+    #     db.extract_user_info()
+    #     db.compress()
